@@ -10,34 +10,8 @@ use std::{collections::VecDeque, path::PathBuf};
 
 pub const CONFIG_VERSION: u64 = 1;
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub enum AppTheme {
-    Dark,
-    Light,
-    System,
-}
-
-impl AppTheme {
-    pub fn theme(&self) -> theme::Theme {
-        match self {
-            Self::Dark => {
-                let mut t = theme::system_dark();
-                t.theme_type.prefer_dark(Some(true));
-                t
-            }
-            Self::Light => {
-                let mut t = theme::system_light();
-                t.theme_type.prefer_dark(Some(false));
-                t
-            }
-            Self::System => theme::system_preference(),
-        }
-    }
-}
-
 #[derive(Clone, CosmicConfigEntry, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct Config {
-    pub app_theme: AppTheme,
     pub auto_indent: bool,
     pub find_case_sensitive: bool,
     pub find_use_regex: bool,
@@ -57,7 +31,6 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            app_theme: AppTheme::System,
             auto_indent: true,
             find_case_sensitive: false,
             find_use_regex: false,
@@ -103,7 +76,10 @@ impl Config {
 
     // Get current syntax theme based on dark mode
     pub fn syntax_theme(&self) -> &str {
-        let dark = self.app_theme.theme().theme_type.is_dark();
+        // WMDE: the window follows the desktop theme; there is no per-app override.
+        // Read the system preference rather than the global theme: the latter may not be
+        // updated yet when the theme mode subscription fires.
+        let dark = theme::system_preference().theme_type.is_dark();
         if dark {
             &self.syntax_theme_dark
         } else {

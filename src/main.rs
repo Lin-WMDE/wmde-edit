@@ -37,7 +37,7 @@ use std::{
 use tokio::time;
 use unicode_segmentation::UnicodeSegmentation;
 
-use config::{AppTheme, CONFIG_VERSION, Config, ConfigState};
+use config::{CONFIG_VERSION, Config, ConfigState};
 mod config;
 
 use icon_cache::IconCache;
@@ -164,7 +164,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
 
     let mut settings = Settings::default();
-    settings = settings.theme(config.app_theme.theme());
     settings = settings.size_limits(Limits::NONE.min_width(360.0).min_height(180.0));
     settings = settings.exit_on_close(false);
 
@@ -315,7 +314,6 @@ enum NewTab {
 #[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub enum Message {
-    AppTheme(AppTheme),
     AutoScroll(Option<f32>),
     Config(Config),
     ConfigState(ConfigState),
@@ -424,7 +422,6 @@ pub struct App {
     zoom_step_names: Vec<String>,
     zoom_steps: Vec<u16>,
     key_binds: HashMap<KeyBind, Action>,
-    app_themes: Vec<String>,
     font_names: Vec<String>,
     font_size_names: Vec<String>,
     font_sizes: Vec<u16>,
@@ -561,7 +558,7 @@ impl App {
                 tab.set_config(&self.config);
             }
         }
-        cosmic::command::set_theme(self.config.app_theme.theme())
+        Task::none()
     }
 
     fn update_render_active_tab_zoom(&mut self, zoom_message: Message) -> Task<Message> {
@@ -775,11 +772,6 @@ impl App {
     }
 
     fn settings(&self) -> Element<'_, Message> {
-        let app_theme_selected = match self.config.app_theme {
-            AppTheme::Dark => 1,
-            AppTheme::Light => 2,
-            AppTheme::System => 0,
-        };
         let dark_selected = self
             .theme_names
             .iter()
@@ -806,19 +798,6 @@ impl App {
         widget::settings::view_column(vec![
             widget::settings::section()
                 .title(fl!("appearance"))
-                .add(
-                    widget::settings::item::builder(fl!("theme")).control(widget::dropdown(
-                        &self.app_themes,
-                        Some(app_theme_selected),
-                        move |index| {
-                            Message::AppTheme(match index {
-                                1 => AppTheme::Dark,
-                                2 => AppTheme::Light,
-                                _ => AppTheme::System,
-                            })
-                        },
-                    )),
-                )
                 .add(
                     widget::settings::item::builder(fl!("syntax-dark")).control(widget::dropdown(
                         &self.theme_names,
@@ -902,8 +881,6 @@ impl Application for App {
                 .set_monospace_family(&flags.config.font_name);
         }
 
-        let app_themes = vec![fl!("match-desktop"), fl!("dark"), fl!("light")];
-
         let font_names = {
             let mut font_names = Vec::new();
             let mut font_system = font_system().write().unwrap();
@@ -971,7 +948,6 @@ impl Application for App {
             key_binds: key_binds(),
             zoom_step_names,
             zoom_steps,
-            app_themes,
             font_names,
             font_size_names,
             font_sizes,
@@ -1129,10 +1105,6 @@ impl Application for App {
             };
         }
         match message {
-            Message::AppTheme(app_theme) => {
-                config_set!(app_theme, app_theme);
-                return self.update_config();
-            }
             Message::AutoScroll(auto_scroll) => {
                 self.auto_scroll = auto_scroll.map(|new| {
                     (
