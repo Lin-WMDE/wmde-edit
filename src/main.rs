@@ -5,7 +5,7 @@ use cosmic::widget::menu::action::MenuAction;
 use cosmic::widget::menu::key_bind::KeyBind;
 use cosmic::widget::segmented_button::{Entity, ReorderEvent};
 use cosmic::{
-    Application, ApplicationExt, Element, action,
+    Application, ApplicationExt, Apply, Element, action,
     app::{Core, Settings, Task, context_drawer},
     cosmic_config::{self, CosmicConfigEntry},
     cosmic_theme, executor,
@@ -947,7 +947,9 @@ impl App {
             let open = self.status_popup == Some(popup);
             let button = button::custom(widget::text::caption(label))
                 .padding([0, space_xxs])
-                .class(style::Button::Text)
+                // WMDE: neutral text, as the status bar reads in Notepad; the text button
+                // style would paint it in the accent colour.
+                .class(style::Button::MenuItem)
                 .on_press(Message::StatusPopup((!open).then_some(popup)));
             if open {
                 widget::popover(button)
@@ -2761,6 +2763,19 @@ impl Application for App {
             tab_column.into(),
         ])
         .push_maybe(self.status_bar())
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .apply(widget::container)
+        // WMDE: an opaque body, as in Files. Without the content container nothing else
+        // paints it, the syntax theme's background is cleared on purpose, and with Mica
+        // title bars the compositor's backdrop showed through the text.
+        .class(style::Container::custom(|theme| widget::container::Style {
+            background: Some(iced::Background::Color(
+                theme.cosmic().background(false).base.into(),
+            )),
+            snap: true,
+            ..Default::default()
+        }))
         .width(Length::Fill)
         .height(Length::Fill)
         .into();
