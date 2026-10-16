@@ -13,7 +13,11 @@ arch=('x86_64')
 url="https://wmde.fun"
 license=('GPL-3.0-only')
 # !debug: skip the split-debug package for this large statically-linked libcosmic binary.
-options=('!debug')
+# !lto: makepkg's lto option puts -flto into CFLAGS, the cc crate compiles the oniguruma C
+# library of syntax highlighting (onig_sys) with it, gcc emits LTO bytecode objects and
+# rustc's ld.lld sees every onig_* symbol as undefined. Rust's own LTO is unaffected: it
+# comes from the release profile. cargo check cannot catch this, only the package build.
+options=('!lto' '!debug')
 # depends: readelf-NEEDED core libs + the libcosmic runtime set (wayland/mesa/fontconfig/
 # freetype2 are dlopen'd by libcosmic at runtime). Verify with namcap.
 depends=('glibc' 'gcc-libs' 'glib2' 'libxkbcommon' 'wayland' 'mesa' 'fontconfig' 'freetype2')
