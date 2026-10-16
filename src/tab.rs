@@ -289,6 +289,9 @@ impl EditorTab {
         if file_content == editor_text(&editor) {
             log::info!("text not changed");
             if !switched {
+                // WMDE: the text is what is on disk, so the document is not modified -
+                // Revert all changes on a tab flagged as changed must clear the flag.
+                editor.set_changed(false);
                 return Ok(());
             }
         } else {
