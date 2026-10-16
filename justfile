@@ -1,5 +1,5 @@
-name := 'cosmic-edit'
-export APPID := 'com.system76.CosmicEdit'
+name := 'wmde-edit'
+export APPID := 'fun.wmde.Edit'
 
 rootdir := ''
 prefix := '/usr'
@@ -13,11 +13,11 @@ bin-src := cargo-target-dir / 'release' / name
 bin-dst := base-dir / 'bin' / name
 
 desktop := APPID + '.desktop'
-desktop-src := 'target/xdgen' / desktop
+desktop-src := 'res' / desktop
 desktop-dst := clean(rootdir / prefix) / 'share' / 'applications' / desktop
 
 metainfo := APPID + '.metainfo.xml'
-metainfo-src := 'target/xdgen' / metainfo
+metainfo-src := 'res' / metainfo
 metainfo-dst := clean(rootdir / prefix) / 'share' / 'metainfo' / metainfo
 
 icons-src := 'res' / 'icons' / 'hicolor'
@@ -60,7 +60,7 @@ dev *args:
 
 # Run with debug logs
 run *args:
-    env RUST_LOG=cosmic_edit=info RUST_BACKTRACE=full cargo run --release {{args}}
+    env RUST_LOG=wmde_edit=info RUST_BACKTRACE=full cargo run --release {{args}}
 
 # Installs files
 install:

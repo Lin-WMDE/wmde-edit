@@ -105,10 +105,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     SYNTAX_SYSTEM.get_or_init(|| {
         let lazy_theme_set = two_face::theme::LazyThemeSet::from(two_face::theme::extra());
         let mut theme_set = syntect::highlighting::ThemeSet::from(&lazy_theme_set);
-        // Hardcoded COSMIC themes
+        // Hardcoded WMDE themes (the COSMIC syntax colours under our names)
         for (theme_name, theme_data) in &[
-            ("COSMIC Dark", cosmic_syntax_theme::COSMIC_DARK_TM_THEME),
-            ("COSMIC Light", cosmic_syntax_theme::COSMIC_LIGHT_TM_THEME),
+            ("WMDE Dark", cosmic_syntax_theme::COSMIC_DARK_TM_THEME),
+            ("WMDE Light", cosmic_syntax_theme::COSMIC_LIGHT_TM_THEME),
         ] {
             let mut cursor = io::Cursor::new(theme_data);
             match syntect::highlighting::ThemeSet::load_from_reader(&mut cursor) {
@@ -1391,7 +1391,7 @@ impl Application for App {
     type Message = Message;
 
     /// The unique application ID to supply to the window manager.
-    const APP_ID: &'static str = "com.system76.CosmicEdit";
+    const APP_ID: &'static str = "fun.wmde.Edit";
 
     fn core(&self) -> &Core {
         &self.core
@@ -1459,16 +1459,16 @@ impl Application for App {
             .name(fl!("cosmic-text-editor"))
             .icon(icon::from_name(Self::APP_ID))
             .version(env!("CARGO_PKG_VERSION"))
-            .author("System76")
+            .author("WMDE")
             .comments(fl!("comment"))
             .license("GPL-3.0-only")
             .license_url("https://spdx.org/licenses/GPL-3.0-only")
             .developers([("System76", "info@system76.com")])
             .links([
-                (fl!("repository"), "https://github.com/pop-os/cosmic-edit"),
+                (fl!("repository"), "https://github.com/Lin-WMDE/wmde-edit"),
                 (
                     fl!("support"),
-                    "https://github.com/pop-os/cosmic-edit/issues",
+                    "https://github.com/Lin-WMDE/wmde-edit/issues",
                 ),
             ]);
 
@@ -3054,7 +3054,7 @@ impl Application for App {
                 .push(
                     widget::tab_bar::horizontal(&self.tab_model)
                         .button_height(32)
-                        .enable_tab_drag(String::from("x-cosmic-edit/tab"))
+                        .enable_tab_drag(String::from("x-wmde-edit/tab"))
                         .on_reorder(Message::ReorderTab)
                         .tab_drag_threshold(25.)
                         .button_spacing(space_xxs)

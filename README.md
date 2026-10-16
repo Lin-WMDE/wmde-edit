@@ -1,20 +1,19 @@
-# COSMIC Text Editor
-Text editor for the COSMIC desktop
+# WMDE Notepad
 
-![Screenshot](res/screenshots/screenshot-1.png)
+Plain text editor for the WMDE desktop (COSMIC-based).
 
-Currently an incomplete **pre-alpha**, this project is a work in progress - issues are expected.
+WMDE Notepad is part of the [WMDE desktop](https://wmde.fun) and is a fork of
+[pop-os/cosmic-edit](https://github.com/pop-os/cosmic-edit) by System76, cut down to a
+notepad and rebranded for WMDE. Original authorship and copyright are retained.
 
-## Testing
-You can test by installing a current version of Rust and then building with `cargo`.
+Text layout, editing and syntax highlighting come from
+[cosmic-text](https://github.com/pop-os/cosmic-text) and
+[syntect](https://github.com/trishume/syntect).
 
-```SHELL
-git clone https://github.com/pop-os/cosmic-edit
-cd cosmic-edit
-cargo build
+## Build (Arch Linux)
+
+A `PKGBUILD` is provided:
+
+```sh
+makepkg -si
 ```
-
-You can get more detailed errors by using the `RUST_LOG` environment variables, that you can invoke for just that one command like this: `RUST_LOG=debug cargo run`. This will give you more detail about the application state. You can go even further with `RUST_LOG=trace cargo run`, that shows all logging details about the application.
-
-## Clippy Lints
-PRs are welcome, as it builds a better product for everyone. It is recommended that you check your code with Clippy Lints turned on. You can find more about [Configuring Clippy](https://doc.rust-lang.org/nightly/clippy/configuration.html) here.

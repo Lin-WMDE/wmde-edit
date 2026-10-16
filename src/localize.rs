@@ -70,7 +70,7 @@ pub fn localize() {
 
     if let Err(error) = localizer.select(&requested_languages) {
         eprintln!(
-            "Error while loading language for COSMIC Text Editor {}",
+            "Error while loading language for WMDE Notepad {}",
             error
         );
     }

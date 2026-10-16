@@ -1,0 +1,14 @@
+[Desktop Entry]
+Name=WMDE Notepad
+Name[uk]=Блокнот
+Comment=Text editor for the WMDE desktop
+Comment[uk]=Текстовий редактор для стільниці WMDE
+Exec=wmde-edit %F
+Terminal=false
+Type=Application
+StartupNotify=true
+MimeType=text/plain;application/x-zerosize;
+Icon=fun.wmde.Edit
+Categories=Utility;TextEditor;
+Keywords=Text;Editor;Notepad;
+Keywords[uk]=Текст;Редактор;Блокнот;

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>fun.wmde.Edit</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-only</project_license>
+  <project_group>WMDE</project_group>
+  <developer_name>WMDE</developer_name>
+  <url type="homepage">https://github.com/Lin-WMDE/wmde-edit</url>
+  <url type="bugtracker">https://github.com/Lin-WMDE/wmde-edit</url>
+  <name>WMDE Notepad</name>
+  <name xml:lang="uk">Блокнот</name>
+  <summary>Text editor for the WMDE desktop</summary>
+  <summary xml:lang="uk">Текстовий редактор для стільниці WMDE</summary>
+  <description>
+    <p>Text editor for the WMDE desktop</p>
+  </description>
+  <keywords>
+    <keyword>Text</keyword>
+    <keyword>Editor</keyword>
+    <keyword>Notepad</keyword>
+  </keywords>
+  <launchable type="desktop-id">fun.wmde.Edit.desktop</launchable>
+  <provides>
+    <mimetypes>
+      <mimetype>text/plain</mimetype>
+    </mimetypes>
+    <binaries>
+      <binary>wmde-edit</binary>
+    </binaries>
+  </provides>
+</component>

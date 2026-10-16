@@ -1,6 +1,6 @@
 [package]
-name = "cosmic-edit"
-version = "1.10.0"
+name = "wmde-edit"
+version = "1.10.1"
 authors = ["Jeremy Soller <jeremy@system76.com>"]
 edition = "2024"
 license = "GPL-3.0-only"
@@ -32,8 +32,12 @@ i18n-embed = { version = "0.16", features = [
 i18n-embed-fl = "0.10"
 rust-embed = "8"
 
+# WMDE: the file dialog comes from our forked file manager (wmde-files) instead of
+# pop-os/cosmic-files. Imported under the `cosmic-files` name so `cosmic_files::dialog::*`
+# in the sources resolves unchanged to wmde-files's lib.
 [dependencies.cosmic-files]
-git = "https://github.com/pop-os/cosmic-files.git"
+package = "wmde-files"
+path = "../wmde-files"
 default-features = false
 
 [dependencies.cosmic-syntax-theme]
@@ -44,16 +48,14 @@ version = "0.19"
 features = ["syntect", "vi"]
 
 [dependencies.libcosmic]
-git = "https://github.com/pop-os/libcosmic.git"
+# WMDE libcosmic fork, resolved by path to the sibling checkout (same as wmde-files).
+path = "../libcosmic"
 default-features = false
 #TODO: a11y feature crashes file choser dialog
 features = ["about", "multi-window", "tokio", "winit", "surface-message"]
 
 [target.'cfg(unix)'.dependencies]
 fork = "0.2"
-
-[build-dependencies]
-xdgen = "0.1"
 
 [features]
 default = ["dbus-config", "gvfs", "wgpu", "wayland"]
@@ -62,14 +64,32 @@ gvfs = ["cosmic-files/gvfs"]
 wgpu = ["libcosmic/wgpu", "cosmic-files/wgpu"]
 wayland = ["libcosmic/wayland", "cosmic-files/wayland"]
 
+# WMDE: shared release profile, see .doc/perf.
+#  - panic = "abort" drops .eh_frame and .gcc_except_table; catch_unwind stops catching,
+#    which in this stack only guards SVG parsing in iced's vector backends.
+#  - lto = "fat" with one codegen unit removes what monomorphisation duplicated.
+# The LTO half is expensive and single threaded; FAST=1 turns it off for development
+# builds without touching panic or opt-level, so behaviour still matches what ships.
+[profile.release]
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+
 [profile.release-with-debug]
 inherits = "release"
 debug = true
 
-# [patch.'https://github.com/pop-os/libcosmic']
-# libcosmic = { git = "https://github.com/pop-os/libcosmic//", branch = "theme-v2" }
-# cosmic-config = { git = "https://github.com/pop-os/libcosmic//", branch = "theme-v2" }
-# cosmic-theme = { git = "https://github.com/pop-os/libcosmic//", branch = "theme-v2" }
-
-# [patch."https://github.com/pop-os/cosmic-files.git"]
-# cosmic-files = { git = "https://github.com/pop-os/cosmic-files//", branch = "theme-v2" }
+# WMDE: redirect every pop-os/libcosmic pull (this crate's direct dep AND the transitive
+# ones from wmde-files, whose own [patch] is ignored when it is a dependency) to the local
+# fork so a single libcosmic/cosmic-config/cosmic-theme resolves in the graph. One table
+# per source: cargo folds the .git and trailing-slash URL variants into this one.
+[patch."https://github.com/pop-os/libcosmic"]
+libcosmic = { path = "../libcosmic" }
+cosmic-config = { path = "../libcosmic/cosmic-config" }
+cosmic-config-derive = { path = "../libcosmic/cosmic-config-derive" }
+cosmic-theme = { path = "../libcosmic/cosmic-theme" }
+iced = { path = "../libcosmic/iced" }
+iced_core = { path = "../libcosmic/iced/core" }
+iced_futures = { path = "../libcosmic/iced/futures" }
+iced_runtime = { path = "../libcosmic/iced/runtime" }
+iced_widget = { path = "../libcosmic/iced/widget" }
