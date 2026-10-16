@@ -145,3 +145,6 @@ encoding-choice = Кодування
 status-bar = Рядок стану
 status-position = Рядок { $line }, стовпець { $column }
 save-with-encoding = Зберігати в кодуванні
+elevated-cancelled = Автентифікацію скасовано, файл не збережено.
+elevated-not-authorized = Права адміністратора для запису цього файлу не надано, файл не збережено.
+elevated-failed = Не вдалося записати файл із правами адміністратора ({ $detail }).

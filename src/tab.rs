@@ -29,9 +29,33 @@ fn editor_text(editor: &ViEditor<'static, 'static>) -> String {
     })
 }
 
+/// WMDE: how writing through pkexec went wrong.
+#[derive(Debug, Eq, PartialEq)]
+pub enum ElevatedError {
+    /// The authentication dialog was dismissed.
+    Cancelled,
+    /// No authorization: a wrong password, no authentication agent, or the policy says no.
+    NotAuthorized,
+    /// pkexec did not start, or tee itself failed; the detail is technical.
+    Failed(String),
+}
+
+impl ElevatedError {
+    /// pkexec(1) exits with 126 when the authentication dialog is dismissed and with 127 when
+    /// authorization is not obtained; any other code is tee's own.
+    fn from_exit_code(code: Option<i32>) -> Self {
+        match code {
+            Some(126) => Self::Cancelled,
+            Some(127) => Self::NotAuthorized,
+            Some(code) => Self::Failed(format!("pkexec: exit status {code}")),
+            None => Self::Failed("pkexec: killed by a signal".to_string()),
+        }
+    }
+}
+
 /// WMDE: writes `bytes` to `path` as root through `pkexec tee`, for files the user may not
-/// write. The error is a short sentence for the save error dialog.
-fn save_elevated(path: &Path, bytes: &[u8]) -> Result<(), String> {
+/// write.
+fn save_elevated(path: &Path, bytes: &[u8]) -> Result<(), ElevatedError> {
     let mut child = Command::new("pkexec")
         .arg("tee")
         .arg(path)
@@ -41,7 +65,7 @@ fn save_elevated(path: &Path, bytes: &[u8]) -> Result<(), String> {
         .spawn()
         .map_err(|err| {
             log::error!("Failed to spawn pkexec process: {}", err);
-            format!("pkexec: {err}")
+            ElevatedError::Failed(format!("pkexec: {err}"))
         })?;
     if let Some(mut stdin) = child.stdin.take() {
         if let Err(err) = stdin.write_all(bytes) {
@@ -55,11 +79,11 @@ fn save_elevated(path: &Path, bytes: &[u8]) -> Result<(), String> {
         Ok(status) if status.success() => Ok(()),
         Ok(status) => {
             log::error!("pkexec process exited with a non-zero status: {:?}", status);
-            Err(format!("pkexec: {status}"))
+            Err(ElevatedError::from_exit_code(status.code()))
         }
         Err(err) => {
             log::error!("Failed to wait on pkexec process: {}", err);
-            Err(format!("pkexec: {err}"))
+            Err(ElevatedError::Failed(format!("pkexec: {err}")))
         }
     }
 }
@@ -101,7 +125,7 @@ pub enum SaveError {
     Unmappable(TextEncoding),
     Io(io::Error),
     /// Writing through pkexec failed or was cancelled.
-    Elevated(String),
+    Elevated(ElevatedError),
 }
 
 impl fmt::Display for SaveError {
@@ -111,7 +135,13 @@ impl fmt::Display for SaveError {
                 f.write_str(&fl!("unmappable-characters", encoding = encoding.name()))
             }
             Self::Io(err) => write!(f, "{err}"),
-            Self::Elevated(message) => f.write_str(message),
+            Self::Elevated(ElevatedError::Cancelled) => f.write_str(&fl!("elevated-cancelled")),
+            Self::Elevated(ElevatedError::NotAuthorized) => {
+                f.write_str(&fl!("elevated-not-authorized"))
+            }
+            Self::Elevated(ElevatedError::Failed(detail)) => {
+                f.write_str(&fl!("elevated-failed", detail = detail.as_str()))
+            }
         }
     }
 }
@@ -587,5 +617,30 @@ fn title_with_parent(path: &std::path::Path, file_name: &str) -> String {
     match parent_name {
         Some(parent) => [parent, "/", file_name].concat(),
         None => file_name.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ElevatedError;
+
+    #[test]
+    fn pkexec_exit_codes_say_what_happened() {
+        assert_eq!(
+            ElevatedError::from_exit_code(Some(126)),
+            ElevatedError::Cancelled
+        );
+        assert_eq!(
+            ElevatedError::from_exit_code(Some(127)),
+            ElevatedError::NotAuthorized
+        );
+        assert_eq!(
+            ElevatedError::from_exit_code(Some(1)),
+            ElevatedError::Failed("pkexec: exit status 1".to_string())
+        );
+        assert!(matches!(
+            ElevatedError::from_exit_code(None),
+            ElevatedError::Failed(_)
+        ));
     }
 }

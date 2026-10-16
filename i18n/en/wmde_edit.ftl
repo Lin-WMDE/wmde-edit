@@ -134,3 +134,6 @@ encoding-choice = Encoding
 status-bar = Status bar
 status-position = Ln { $line }, Col { $column }
 save-with-encoding = Save with encoding
+elevated-cancelled = Authentication was cancelled, the file was not saved.
+elevated-not-authorized = Administrator rights to write this file were not granted, the file was not saved.
+elevated-failed = The file could not be written with administrator rights ({ $detail }).
