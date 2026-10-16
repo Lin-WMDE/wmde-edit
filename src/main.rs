@@ -1670,7 +1670,9 @@ impl Application for App {
                     }
                 }
                 if let Some(title) = title_opt {
-                    self.tab_model.text_set(self.tab_model.active(), title);
+                    // WMDE: the saved tab, not the active one - Save all and the close prompt
+                    // save tabs that are not active.
+                    self.tab_model.text_set(entity, title);
                 }
                 return self.update_dialogs();
             }

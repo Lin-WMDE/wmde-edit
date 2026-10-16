@@ -35,8 +35,10 @@ impl Default for Config {
             find_case_sensitive: false,
             find_use_regex: false,
             find_wrap_around: true,
-            font_name: "Noto Sans Mono".to_string(),
-            font_size: 14,
+            // WMDE: the desktop's monospace family rather than a name written into the app,
+            // and the 12 px of `monotext` (.doc/appearance/02-typography.md).
+            font_name: cosmic::config::monospace_font().family,
+            font_size: 12,
             font_size_zoom_step_mul_100: 100,
             highlight_current_line: true,
             line_numbers: true,

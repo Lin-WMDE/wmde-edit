@@ -11,7 +11,7 @@ todo = ЗРОБИТИ
 
 ## Document statistics
 
-document-statistics = Статистики документа
+document-statistics = Статистика документа
 word-count = Кількість слів
 character-count = Символів
 character-count-no-spaces = Символів (без пропусків)
@@ -36,8 +36,8 @@ project-search = Пошук проєкту
 prompt-save-changes-title = Зберегти зміни перед закриттям?
 prompt-unsaved-changes = У вас є незбережені зміни. Якщо продовжите без збереження, зміни будуть втрачені.
 cancel = Скасувати
-discard = Відкинути
-save-all = Зберегти
+discard = Не зберігати
+save-all = Зберегти все
 
 ## Settings
 
@@ -58,7 +58,7 @@ default-font-size = Стандартний розмір шрифту
 ### Keyboard shortcuts
 
 keyboard-shortcuts = Сполучення клавіш
-enable-vim-bindings = Прив’язки клавіш Vim
+enable-vim-bindings = Привʼязки клавіш Vim
 # Find
 find-placeholder = Знайти...
 find-previous = Знайти попередній
@@ -82,10 +82,10 @@ close-file = Закрити файл
 menu-open-project = Відкрити проєкт...
 open-recent-project = Відкрити нещодавній проєкт
 close-project = Закрити проєкт
-save = Зберегти тут
-save-as = Зберегти як…
+save = Зберегти
+save-as = Зберегти як...
 revert-all-changes = Скасувати всі зміни
-menu-document-statistics = Статистики документа...
+menu-document-statistics = Статистика документа...
 document-type = Тип документа...
 encoding = Кодування...
 menu-git-management = Керування Git...

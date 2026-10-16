@@ -33,7 +33,7 @@ project-search = Project search
 prompt-save-changes-title = Save changes before closing?
 prompt-unsaved-changes = You have unsaved changes. If you continue without saving, these changes will be lost.
 cancel = Cancel
-discard = Discard changes
+discard = Don't save
 save-all = Save all
 
 ## Settings
