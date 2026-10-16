@@ -115,5 +115,4 @@ impl Config {
 #[derive(Clone, CosmicConfigEntry, Debug, Deserialize, Eq, PartialEq, Serialize, Default)]
 pub struct ConfigState {
     pub recent_files: VecDeque<PathBuf>,
-    pub recent_projects: VecDeque<PathBuf>,
 }

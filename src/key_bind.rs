@@ -32,7 +32,6 @@ pub fn key_binds() -> HashMap<KeyBind, Action> {
     bind!([Ctrl], Key::Character("t".into()), NewFile);
     bind!([Ctrl], Key::Character("n".into()), NewWindow);
     bind!([Ctrl], Key::Character("o".into()), OpenFileDialog);
-    bind!([Ctrl, Shift], Key::Character("O".into()), OpenProjectDialog);
     bind!([Ctrl], Key::Character("q".into()), Quit);
     bind!([Ctrl, Shift], Key::Character("Z".into()), Redo);
     bind!([Ctrl], Key::Character("s".into()), Save);
@@ -55,11 +54,6 @@ pub fn key_binds() -> HashMap<KeyBind, Action> {
     bind!([Ctrl], Key::Character("9".into()), TabActivate8);
     bind!([Ctrl], Key::Named(Named::Tab), TabNext);
     bind!([Ctrl, Shift], Key::Named(Named::Tab), TabPrev);
-    bind!(
-        [Ctrl, Shift],
-        Key::Character("F".into()),
-        ToggleProjectSearch
-    );
     bind!([Ctrl], Key::Character(",".into()), ToggleSettingsPage);
     bind!([Alt], Key::Character("z".into()), ToggleWordWrap);
     bind!([Ctrl], Key::Character("z".into()), Undo);

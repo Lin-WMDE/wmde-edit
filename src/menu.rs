@@ -167,7 +167,6 @@ pub fn menu_bar<'a>(
     config: &Config,
     config_state: &ConfigState,
     key_binds: &HashMap<KeyBind, Action>,
-    projects: &[(String, PathBuf)],
     has_selection: bool,
 ) -> Element<'a, Message> {
     //TODO: port to libcosmic
@@ -191,24 +190,6 @@ pub fn menu_bar<'a>(
         ));
     }
 
-    let mut recent_projects = Vec::with_capacity(config_state.recent_projects.len());
-    for (i, path) in config_state.recent_projects.iter().enumerate() {
-        recent_projects.push(MenuItem::Button(
-            format_recent_menu_path(path, home_dir_opt.as_ref()),
-            None,
-            Action::OpenRecentProject(i),
-        ));
-    }
-
-    let mut close_projects = Vec::with_capacity(projects.len());
-    for (project_i, (name, _path)) in projects.iter().enumerate() {
-        close_projects.push(MenuItem::Button(
-            name.clone(),
-            None,
-            Action::CloseProject(project_i),
-        ));
-    }
-
     responsive_menu_bar()
         .item_height(ItemHeight::Dynamic(40))
         .item_width(ItemWidth::Uniform(320))
@@ -228,10 +209,6 @@ pub fn menu_bar<'a>(
                         MenuItem::Button(fl!("open-file"), None, Action::OpenFileDialog),
                         MenuItem::Folder(fl!("open-recent-file"), recent_files),
                         MenuItem::Button(fl!("close-file"), None, Action::CloseFile),
-                        MenuItem::Divider,
-                        MenuItem::Button(fl!("menu-open-project"), None, Action::OpenProjectDialog),
-                        MenuItem::Folder(fl!("open-recent-project"), recent_projects),
-                        MenuItem::Folder(fl!("close-project"), close_projects),
                         MenuItem::Divider,
                         MenuItem::Button(fl!("save"), None, Action::Save),
                         MenuItem::Button(fl!("save-as"), None, Action::SaveAsDialog),
@@ -271,7 +248,6 @@ pub fn menu_bar<'a>(
                         MenuItem::Divider,
                         MenuItem::Button(fl!("find"), None, Action::Find),
                         MenuItem::Button(fl!("replace"), None, Action::FindAndReplace),
-                        MenuItem::Button(fl!("find-in-project"), None, Action::ToggleProjectSearch),
                         /*TODO: implement spell-check
                         MenuItem::Divider,
                         MenuItem::Button(fl!("spell-check"), None, Action::Todo),

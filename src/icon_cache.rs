@@ -31,9 +31,7 @@ impl IconCache {
         }
 
         bundle!("edit-clear-symbolic", 16);
-        bundle!("folder-open-symbolic", 16);
         bundle!("go-down-symbolic", 16);
-        bundle!("go-next-symbolic", 16);
         bundle!("go-up-symbolic", 16);
         bundle!("list-add-symbolic", 16);
         bundle!("object-select-symbolic", 16);

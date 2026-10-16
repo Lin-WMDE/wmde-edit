@@ -5,7 +5,7 @@ use cosmic::widget::menu::action::MenuAction;
 use cosmic::widget::menu::key_bind::KeyBind;
 use cosmic::widget::segmented_button::{Entity, ReorderEvent};
 use cosmic::{
-    Application, ApplicationExt, Apply, Element, action,
+    Application, ApplicationExt, Element, action,
     app::{Core, Settings, Task, context_drawer},
     cosmic_config::{self, CosmicConfigEntry},
     cosmic_theme, executor,
@@ -18,8 +18,8 @@ use cosmic::{
         keyboard::{self, Modifiers},
         stream, window,
     },
-    style, theme,
-    widget::{self, about::About, button, icon, nav_bar, segmented_button},
+    style,
+    widget::{self, about::About, button, icon, segmented_button},
 };
 use cosmic_files::dialog::{Dialog, DialogKind, DialogMessage, DialogResult, DialogSettings};
 use cosmic_text::{Cursor, Edit, Family, Selection, SwashCache, SyntaxSystem, ViMode};
@@ -30,7 +30,7 @@ use std::{
     any::TypeId,
     collections::{HashMap, HashSet},
     env, fs, io,
-    path::{self, Path, PathBuf},
+    path::{self, PathBuf},
     process,
     sync::{Mutex, OnceLock},
 };
@@ -53,12 +53,6 @@ mod localize;
 
 use self::menu::menu_bar;
 mod menu;
-
-use self::project::ProjectNode;
-mod project;
-
-use self::search::ProjectSearchResult;
-mod search;
 
 use self::tab::{EditorTab, Tab};
 mod tab;
@@ -191,7 +185,6 @@ pub enum Action {
     NoOp,
     About,
     CloseFile,
-    CloseProject(usize),
     Copy,
     Cut,
     Find,
@@ -199,9 +192,7 @@ pub enum Action {
     NewFile,
     NewWindow,
     OpenFileDialog,
-    OpenProjectDialog,
     OpenRecentFile(usize),
-    OpenRecentProject(usize),
     Paste,
     Quit,
     Redo,
@@ -225,7 +216,6 @@ pub enum Action {
     ToggleDocumentStatistics,
     ToggleHighlightCurrentLine,
     ToggleLineNumbers,
-    ToggleProjectSearch,
     ToggleSettingsPage,
     ToggleWordWrap,
     Undo,
@@ -241,7 +231,6 @@ impl Action {
             Self::NoOp => Message::NoOp,
             Self::About => Message::ToggleContextPage(ContextPage::About),
             Self::CloseFile => Message::CloseFile,
-            Self::CloseProject(project_i) => Message::CloseProject(*project_i),
             Self::Copy => Message::Copy,
             Self::Cut => Message::Cut,
             Self::Find => Message::Find(Some(false)),
@@ -249,9 +238,7 @@ impl Action {
             Self::NewFile => Message::NewFile,
             Self::NewWindow => Message::NewWindow,
             Self::OpenFileDialog => Message::OpenFileDialog,
-            Self::OpenProjectDialog => Message::OpenProjectDialog,
             Self::OpenRecentFile(index) => Message::OpenRecentFile(*index),
-            Self::OpenRecentProject(index) => Message::OpenRecentProject(*index),
             Self::Paste => Message::Paste,
             Self::Quit => Message::Quit,
             Self::Redo => Message::Redo,
@@ -277,7 +264,6 @@ impl Action {
             }
             Self::ToggleHighlightCurrentLine => Message::ToggleHighlightCurrentLine,
             Self::ToggleLineNumbers => Message::ToggleLineNumbers,
-            Self::ToggleProjectSearch => Message::ToggleContextPage(ContextPage::ProjectSearch),
             Self::ToggleSettingsPage => Message::ToggleContextPage(ContextPage::Settings),
             Self::ToggleWordWrap => Message::ToggleWordWrap,
             Self::Undo => Message::Undo,
@@ -334,7 +320,6 @@ pub enum Message {
     Config(Config),
     ConfigState(ConfigState),
     CloseFile,
-    CloseProject(usize),
     CloseWindow(window::Id),
     Copy,
     Cut,
@@ -369,16 +354,9 @@ pub enum Message {
     OpenFile(PathBuf),
     OpenFileDialog,
     OpenFileResult(DialogResult),
-    OpenProjectDialog,
-    OpenProjectResult(DialogResult),
     OpenRecentFile(usize),
-    OpenRecentProject(usize),
-    OpenSearchResult(usize, usize),
     Paste,
     PasteValue(String),
-    ProjectSearchResult(ProjectSearchResult),
-    ProjectSearchSubmit,
-    ProjectSearchValue(String),
     PromptSaveChanges(segmented_button::Entity),
     Quit,
     QuitForce,
@@ -419,8 +397,6 @@ pub enum Message {
 pub enum ContextPage {
     About,
     DocumentStatistics,
-    //TODO: Move search to pop-up
-    ProjectSearch,
     Settings,
 }
 
@@ -440,7 +416,6 @@ pub enum Find {
 pub struct App {
     core: Core,
     about: About,
-    nav_model: segmented_button::SingleSelectModel,
     tab_model: segmented_button::SingleSelectModel,
     config_handler: Option<cosmic_config::Config>,
     config: Config,
@@ -464,11 +439,6 @@ pub struct App {
     find_replace_value: String,
     find_search_id: widget::Id,
     find_search_value: String,
-    projects: Vec<(String, PathBuf)>,
-    project_search_id: widget::Id,
-    project_search_value: String,
-    project_search_result: Option<ProjectSearchResult>,
-    project_search_has_focus: bool,
     watcher_opt: Option<(
         notify::RecommendedWatcher,
         HashSet<(PathBuf, RecursiveMode)>,
@@ -489,121 +459,6 @@ impl App {
 
     pub fn active_tab_mut(&mut self) -> Option<&mut Tab> {
         self.tab_model.active_data_mut()
-    }
-
-    fn open_folder<P: AsRef<Path>>(&mut self, path: P, mut position: u16, indent: u16) {
-        let mut nodes = Vec::new();
-        for entry_res in ignore::WalkBuilder::new(&path)
-            .filter_entry(|entry| entry.file_name() != ".git")
-            .hidden(false)
-            .max_depth(Some(1))
-            .build()
-        {
-            let entry = match entry_res {
-                Ok(ok) => ok,
-                Err(err) => {
-                    log::error!(
-                        "failed to read entry in directory {:?}: {}",
-                        path.as_ref(),
-                        err
-                    );
-                    continue;
-                }
-            };
-            if entry.depth() == 0 {
-                continue;
-            }
-            let entry_path = entry.path();
-            let node = match ProjectNode::new(entry_path) {
-                Ok(ok) => ok,
-                Err(err) => {
-                    log::error!(
-                        "failed to open directory {:?} entry {:?}: {}",
-                        path.as_ref(),
-                        entry_path,
-                        err
-                    );
-                    continue;
-                }
-            };
-            nodes.push(node);
-        }
-
-        nodes.sort();
-
-        for node in nodes {
-            self.nav_model
-                .insert()
-                .position(position)
-                .indent(indent)
-                .icon(node.icon(16))
-                .text(node.name().to_string())
-                .data(node);
-
-            position += 1;
-        }
-    }
-
-    pub fn open_project<P: AsRef<Path>>(&mut self, path: P) {
-        let path = path.as_ref();
-        let node = match ProjectNode::new(path) {
-            Ok(mut node) => {
-                match &mut node {
-                    ProjectNode::Folder {
-                        name,
-                        path,
-                        open,
-                        root,
-                    } => {
-                        *open = true;
-                        *root = true;
-
-                        for (_project_name, project_path) in self.projects.iter() {
-                            if project_path == path {
-                                // Project already open
-                                return;
-                            }
-                        }
-
-                        // Save the absolute path
-                        self.projects.push((name.to_string(), path.to_path_buf()));
-                        self.update_watcher();
-
-                        // Add to recent projects, ensuring only one entry
-                        self.config_state.recent_projects.retain(|x| x != path);
-                        self.config_state
-                            .recent_projects
-                            .push_front(path.to_path_buf());
-                        self.config_state.recent_projects.truncate(10);
-                        self.save_config_state();
-
-                        // Open nav bar
-                        self.core.nav_bar_set_toggled(true);
-                    }
-                    _ => {
-                        log::error!("failed to open project {:?}: not a directory", path);
-                        return;
-                    }
-                }
-                node
-            }
-            Err(err) => {
-                log::error!("failed to open project {:?}: {}", path, err);
-                return;
-            }
-        };
-
-        let id = self
-            .nav_model
-            .insert()
-            .icon(node.icon(16))
-            .text(node.name().to_string())
-            .data(node)
-            .id();
-        self.update_nav_bar_placeholder();
-
-        let position = self.nav_model.position(id).unwrap_or(0);
-        self.open_folder(path, position + 1, 1);
     }
 
     pub fn open_tab(&mut self, path_opt: Option<PathBuf>) -> Option<segmented_button::Entity> {
@@ -783,12 +638,7 @@ impl App {
 
     fn update_focus(&self) -> Task<Message> {
         if self.core.window.show_context {
-            match self.context_page {
-                ContextPage::ProjectSearch if self.project_search_has_focus => {
-                    widget::text_input::focus(self.project_search_id.clone())
-                }
-                _ => Task::none(),
-            }
+            Task::none()
         } else if self.find_opt.is_some_and(
             |FindField {
                  replace: _,
@@ -801,77 +651,8 @@ impl App {
         }
     }
 
-    fn update_nav_bar_active(&mut self) {
-        let tab_path_opt = match self.active_tab() {
-            Some(Tab::Editor(tab)) => tab.path_opt.clone(),
-            None => None,
-        };
-
-        // Locate tree node to activate
-        let mut active_id = segmented_button::Entity::default();
-
-        if let Some(tab_path) = tab_path_opt {
-            // Automatically expand tree to find and select active file
-            loop {
-                let mut expand_opt = None;
-                for id in self.nav_model.iter() {
-                    if let Some(node) = self.nav_model.data(id) {
-                        match node {
-                            ProjectNode::Folder { path, open, .. } => {
-                                if tab_path.starts_with(path) && !*open {
-                                    expand_opt = Some(id);
-                                    break;
-                                }
-                            }
-                            ProjectNode::File { path, .. } => {
-                                if path == &tab_path {
-                                    active_id = id;
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                }
-                match expand_opt {
-                    Some(id) => {
-                        //TODO: can this be optimized?
-                        // Task not used becuase opening a folder just returns Task::none
-                        let _ = self.on_nav_select(id);
-                    }
-                    None => {
-                        break;
-                    }
-                }
-            }
-        }
-        self.nav_model.activate(active_id);
-    }
-
-    fn update_nav_bar_placeholder(&mut self) {
-        // Remove all placeholder items
-        let mut remove = Vec::new();
-        for entity in self.nav_model.iter() {
-            if self.nav_model.data::<ProjectNode>(entity).is_none() {
-                remove.push(entity);
-            }
-        }
-        for entity in remove {
-            self.nav_model.remove(entity);
-        }
-
-        // Add button to open a project if none provided
-        if self.nav_model.iter().next().is_none() {
-            self.nav_model
-                .insert()
-                .icon(icon_cache_get("folder-open-symbolic", 16))
-                .text(fl!("open-project"));
-        }
-    }
-
     // Call this any time the tab changes
     pub fn update_tab(&mut self) -> Task<Message> {
-        self.update_nav_bar_active();
-
         let title = match self.active_tab() {
             Some(tab) => {
                 let Tab::Editor(inner) = tab;
@@ -897,20 +678,10 @@ impl App {
         if let Some((mut watcher, old_paths)) = self.watcher_opt.take() {
             let mut new_paths = HashSet::new();
 
-            for (_, project_path) in self.projects.iter() {
-                new_paths.insert((project_path.clone(), RecursiveMode::Recursive));
-            }
-
-            'tabs: for entity in self.tab_model.iter() {
+            for entity in self.tab_model.iter() {
                 if let Some(Tab::Editor(tab)) = self.tab_model.data::<Tab>(entity)
                     && let Some(path) = &tab.path_opt
                 {
-                    for (_, project_path) in self.projects.iter() {
-                        if path.starts_with(project_path) {
-                            // Do not watch tabs inside of already watched projects
-                            continue 'tabs;
-                        }
-                    }
                     new_paths.insert((path.to_path_buf(), RecursiveMode::NonRecursive));
                 }
             }
@@ -1001,91 +772,6 @@ impl App {
                 .into(),
         ])
         .into()
-    }
-
-    fn project_search(&self) -> Element<'_, Message> {
-        let spacing = self.core().system_theme().cosmic().spacing;
-
-        let search_input = widget::text_input::search_input(
-            fl!("project-search"),
-            self.project_search_value.clone(),
-        )
-        .id(self.project_search_id.clone());
-
-        let items = match &self.project_search_result {
-            Some(project_search_result) => {
-                let mut items =
-                    Vec::with_capacity(project_search_result.files.len().saturating_add(1));
-
-                if project_search_result.in_progress {
-                    items.push(search_input.into());
-                } else {
-                    items.push(
-                        search_input
-                            .on_input(Message::ProjectSearchValue)
-                            .on_submit(|_| Message::ProjectSearchSubmit)
-                            .into(),
-                    );
-                }
-
-                for (file_i, file_search_result) in project_search_result.files.iter().enumerate() {
-                    let mut column = widget::column::with_capacity(file_search_result.lines.len());
-                    let mut line_number_width = 1;
-                    if let Some(line_search_result) = file_search_result.lines.last() {
-                        let mut number = line_search_result.number;
-                        while number >= 10 {
-                            number /= 10;
-                            line_number_width += 1;
-                        }
-                    }
-                    for (line_i, line_search_result) in file_search_result.lines.iter().enumerate()
-                    {
-                        column = column.push(
-                            widget::button::custom(
-                                widget::row::with_children(vec![
-                                    widget::text(format!(
-                                        "{:width$}",
-                                        line_search_result.number,
-                                        width = line_number_width,
-                                    ))
-                                    .font(Font::MONOSPACE)
-                                    .into(),
-                                    widget::text(line_search_result.text.to_string())
-                                        .font(Font::MONOSPACE)
-                                        .into(),
-                                ])
-                                .spacing(spacing.space_xs),
-                            )
-                            .on_press(Message::OpenSearchResult(file_i, line_i))
-                            .width(Length::Fill)
-                            .class(theme::Button::AppletMenu),
-                        );
-                    }
-
-                    items.push(
-                        widget::settings::section()
-                            .title(format!("{}", file_search_result.path.display(),))
-                            .add(column)
-                            .into(),
-                    );
-                }
-
-                items
-            }
-            None => {
-                vec![
-                    search_input
-                        .on_input(Message::ProjectSearchValue)
-                        .on_submit(|_| Message::ProjectSearchSubmit)
-                        .into(),
-                ]
-            }
-        };
-
-        widget::column::with_children(items)
-            .spacing(spacing.space_s)
-            .padding([spacing.space_xxs, spacing.space_none])
-            .into()
     }
 
     fn settings(&self) -> Element<'_, Message> {
@@ -1277,7 +963,6 @@ impl Application for App {
         let mut app = App {
             core,
             about,
-            nav_model: nav_bar::Model::builder().build(),
             tab_model: segmented_button::Model::builder().build(),
             config_handler: flags.config_handler,
             config: flags.config,
@@ -1301,27 +986,22 @@ impl Application for App {
             find_replace_value: String::new(),
             find_search_id: widget::Id::unique(),
             find_search_value: String::new(),
-            projects: Vec::new(),
-            project_search_id: widget::Id::unique(),
-            project_search_value: String::new(),
-            project_search_result: None,
-            project_search_has_focus: false,
             watcher_opt: None,
             modifiers: Modifiers::empty(),
         };
 
-        // Do not show nav bar by default. Will be opened by open_project if needed
-        app.core.nav_bar_set_toggled(false);
         for arg in env::args().skip(1) {
             let path = PathBuf::from(arg);
             if path.is_dir() {
-                app.open_project(path);
+                // WMDE: no projects in the notepad; a folder argument opens nothing.
+                log::warn!(
+                    "ignoring folder argument {:?}: folders are not opened",
+                    path
+                );
             } else {
                 app.open_tab(Some(path));
             }
         }
-
-        app.update_nav_bar_placeholder();
 
         // Open an empty file if no arguments provided
         if app.tab_model.iter().next().is_none() {
@@ -1331,49 +1011,6 @@ impl Application for App {
         //TODO: try update_config here? It breaks loading system theme by default
         let command = app.update_tab();
         (app, command)
-    }
-
-    // The default nav_bar widget needs to be condensed for cosmic-edit
-    fn nav_bar(&self) -> Option<Element<'_, action::Action<Self::Message>>> {
-        if !self.core().nav_bar_active() {
-            return None;
-        }
-
-        let nav_model = self.nav_model()?;
-
-        let cosmic_theme::Spacing {
-            space_none,
-            space_s,
-            space_xxxs,
-            ..
-        } = self.core().system_theme().cosmic().spacing;
-
-        let mut nav = segmented_button::vertical(nav_model)
-            .button_height(space_xxxs + 20 /* line height */ + space_xxxs)
-            .button_padding([space_s, space_xxxs, space_s, space_xxxs])
-            .button_spacing(space_xxxs)
-            .on_activate(|entity| action::cosmic(cosmic::app::Action::NavBar(entity)))
-            .spacing(space_none)
-            .style(theme::SegmentedButton::FileNav)
-            .apply(widget::container)
-            .padding(space_s)
-            .width(Length::Shrink);
-
-        if !self.core().is_condensed() {
-            nav = nav.max_width(280);
-        }
-
-        Some(
-            nav.apply(widget::scrollable)
-                .apply(widget::container)
-                .height(Length::Fill)
-                .class(theme::Container::custom(nav_bar::nav_bar_style))
-                .into(),
-        )
-    }
-
-    fn nav_model(&self) -> Option<&nav_bar::Model> {
-        Some(&self.nav_model)
     }
 
     fn on_app_exit(&mut self) -> Option<Message> {
@@ -1397,60 +1034,6 @@ impl Application for App {
 
         // Focus correct widget
         self.update_focus()
-    }
-
-    fn on_nav_select(&mut self, id: nav_bar::Id) -> Task<Message> {
-        // Toggle open state and get clone of node data
-        let node_opt = match self.nav_model.data_mut::<ProjectNode>(id) {
-            Some(node) => {
-                if let ProjectNode::Folder { open, .. } = node {
-                    *open = !*open;
-                }
-                Some(node.clone())
-            }
-            None => None,
-        };
-
-        match node_opt {
-            Some(node) => {
-                // Update icon
-                self.nav_model.icon_set(id, node.icon(16));
-
-                match node {
-                    ProjectNode::Folder { path, open, .. } => {
-                        let position = self.nav_model.position(id).unwrap_or(0);
-                        let indent = self.nav_model.indent(id).unwrap_or(0);
-                        if open {
-                            // Open folder
-                            self.open_folder(path, position + 1, indent + 1);
-                        } else {
-                            // Close folder
-                            while let Some(child_id) = self.nav_model.entity_at(position + 1) {
-                                if self.nav_model.indent(child_id).unwrap_or(0) > indent {
-                                    self.nav_model.remove(child_id);
-                                } else {
-                                    break;
-                                }
-                            }
-                        }
-
-                        // Prevent nav bar from closing when selecting a
-                        // folder in condensed mode.
-                        self.core_mut().nav_bar_set_toggled(true);
-
-                        Task::none()
-                    }
-                    ProjectNode::File { path, .. } => {
-                        //TODO: go to already open file if possible
-                        self.update(Message::OpenFile(path))
-                    }
-                }
-            }
-            None => {
-                // Open project
-                self.update(Message::OpenProjectDialog)
-            }
-        }
     }
 
     fn dialog(&self) -> Option<Element<'_, Self::Message>> {
@@ -1576,40 +1159,6 @@ impl Application for App {
             }
             Message::CloseFile => {
                 return self.update(Message::TabClose(self.tab_model.active()));
-            }
-            Message::CloseProject(project_i) => {
-                if project_i < self.projects.len() {
-                    let (_project_name, project_path) = self.projects.remove(project_i);
-                    self.update_watcher();
-                    let mut position = 0;
-                    let mut closing = false;
-                    while let Some(id) = self.nav_model.entity_at(position) {
-                        match self.nav_model.data::<ProjectNode>(id) {
-                            Some(node) => {
-                                if let ProjectNode::Folder { path, root, .. } = node {
-                                    if path == &project_path {
-                                        // Found the project root node, closing
-                                        closing = true;
-                                    } else if *root && closing {
-                                        // Found another project root node after closing, breaking
-                                        break;
-                                    }
-                                }
-                            }
-                            None => {
-                                if closing {
-                                    break;
-                                }
-                            }
-                        }
-                        if closing {
-                            self.nav_model.remove(id);
-                        } else {
-                            position += 1;
-                        }
-                    }
-                    self.update_nav_bar_placeholder();
-                }
             }
             Message::CloseWindow(window_id) => {
                 if Some(window_id) == self.core.main_window_id() {
@@ -1862,7 +1411,6 @@ impl Application for App {
                     };
                 }
                 if !has_focus {
-                    self.project_search_has_focus = false;
                     return self.update_focus();
                 }
             }
@@ -1928,84 +1476,6 @@ impl Application for App {
                         }
                     }
                 }
-
-                // Reload folders that changed
-                let mut close_entities = Vec::new();
-                let mut open_paths = Vec::new();
-                for entity in self.nav_model.iter() {
-                    let Some(ProjectNode::Folder {
-                        path, open: true, ..
-                    }) = self.nav_model.data::<ProjectNode>(entity)
-                    else {
-                        continue;
-                    };
-                    for event_path in event.paths.iter() {
-                        if event_path == path || event_path.parent() == Some(path) {
-                            close_entities.push(entity);
-                            open_paths.push(path.to_path_buf());
-                            break;
-                        }
-                    }
-                }
-                for entity in close_entities {
-                    // Close folder
-                    if let Some(ProjectNode::Folder { open, .. }) =
-                        self.nav_model.data_mut::<ProjectNode>(entity)
-                    {
-                        *open = false;
-                    } else {
-                        continue;
-                    }
-                    // Remove children
-                    let position = self.nav_model.position(entity).unwrap_or(0);
-                    let indent = self.nav_model.indent(entity).unwrap_or(0);
-                    while let Some(child) = self.nav_model.entity_at(position + 1) {
-                        if let Some(ProjectNode::Folder {
-                            path, open: true, ..
-                        }) = self.nav_model.data::<ProjectNode>(child)
-                        {
-                            // Re-open children as needed
-                            open_paths.push(path.to_path_buf());
-                        }
-                        if self.nav_model.indent(child).unwrap_or(0) > indent {
-                            self.nav_model.remove(child);
-                        } else {
-                            break;
-                        }
-                    }
-                }
-                for open_path in open_paths {
-                    let mut entity_opt = None;
-                    for entity in self.nav_model.iter() {
-                        let Some(ProjectNode::Folder {
-                            path, open: false, ..
-                        }) = self.nav_model.data::<ProjectNode>(entity)
-                        else {
-                            continue;
-                        };
-                        if open_path == *path {
-                            entity_opt = Some(entity);
-                            break;
-                        }
-                    }
-                    let Some(entity) = entity_opt else { continue };
-                    // Open folder
-                    let icon = if let Some(node) = self.nav_model.data_mut::<ProjectNode>(entity) {
-                        if let ProjectNode::Folder { open, .. } = node {
-                            *open = true;
-                        } else {
-                            continue;
-                        }
-                        node.icon(16)
-                    } else {
-                        continue;
-                    };
-                    // Update icon
-                    self.nav_model.icon_set(entity, icon);
-                    let position = self.nav_model.position(entity).unwrap_or(0);
-                    let indent = self.nav_model.indent(entity).unwrap_or(0);
-                    self.open_folder(open_path, position + 1, indent + 1);
-                }
             }
             Message::NotifyWatcher(mut watcher_wrapper) => match watcher_wrapper.watcher_opt.take()
             {
@@ -2060,75 +1530,10 @@ impl Application for App {
                     }
                 }
             }
-            Message::OpenProjectDialog => {
-                if self.dialog_opt.is_none() {
-                    let (dialog, command) = Dialog::new(
-                        DialogSettings::new().kind(DialogKind::OpenMultipleFolders),
-                        Message::DialogMessage,
-                        Message::OpenProjectResult,
-                    );
-                    self.dialog_opt = Some(dialog);
-                    return command;
-                }
-            }
-            Message::OpenProjectResult(result) => {
-                self.dialog_opt = None;
-                match result {
-                    DialogResult::Cancel => {}
-                    DialogResult::Open(paths) => {
-                        for path in paths {
-                            self.open_project(path);
-                        }
-                    }
-                }
-            }
             Message::OpenRecentFile(index) => {
                 if let Some(path) = self.config_state.recent_files.get(index).cloned() {
                     self.open_tab(Some(path));
                     return self.update_tab();
-                }
-            }
-            Message::OpenRecentProject(index) => {
-                if let Some(path) = self.config_state.recent_projects.get(index).cloned() {
-                    self.open_project(path);
-                }
-            }
-            Message::OpenSearchResult(file_i, line_i) => {
-                let path_cursor_opt = match &self.project_search_result {
-                    Some(project_search_result) => match project_search_result.files.get(file_i) {
-                        Some(file_search_result) => match file_search_result.lines.get(line_i) {
-                            Some(line_search_result) => Some((
-                                file_search_result.path.to_path_buf(),
-                                Cursor::new(
-                                    line_search_result.number.saturating_sub(1),
-                                    line_search_result.first.start(),
-                                ),
-                            )),
-                            None => {
-                                log::warn!("failed to find search result {}, {}", file_i, line_i);
-                                None
-                            }
-                        },
-                        None => {
-                            log::warn!("failed to find search result {}", file_i);
-                            None
-                        }
-                    },
-                    None => None,
-                };
-
-                if let Some((path, cursor)) = path_cursor_opt {
-                    self.project_search_has_focus = false;
-                    if let Some(entity) = self.open_tab(Some(path)) {
-                        return Task::batch([
-                            //TODO: why must this be done in a command?
-                            Task::perform(
-                                async move { action::app(Message::TabSetCursor(entity, cursor)) },
-                                |x| x,
-                            ),
-                            self.update_tab(),
-                        ]);
-                    }
                 }
             }
             Message::Paste => {
@@ -2147,47 +1552,6 @@ impl Application for App {
                     }
                     return self.update(Message::TabChanged(self.tab_model.active()));
                 }
-            }
-            Message::ProjectSearchResult(project_search_result) => {
-                self.project_search_result = Some(project_search_result);
-                self.project_search_has_focus = true;
-
-                // Focus correct input
-                return self.update_focus();
-            }
-            Message::ProjectSearchSubmit => {
-                //TODO: Figure out length requirements?
-                if !self.project_search_value.is_empty() {
-                    let projects = self.projects.clone();
-                    let project_search_value = self.project_search_value.clone();
-                    let mut project_search_result = ProjectSearchResult {
-                        value: project_search_value.clone(),
-                        in_progress: true,
-                        files: Vec::new(),
-                    };
-                    self.project_search_result = Some(project_search_result.clone());
-                    return Task::perform(
-                        async move {
-                            let task_res = tokio::task::spawn_blocking(move || {
-                                project_search_result.search_projects(projects);
-                                action::app(Message::ProjectSearchResult(project_search_result))
-                            })
-                            .await;
-                            match task_res {
-                                Ok(message) => message,
-                                Err(err) => {
-                                    log::error!("failed to run search task: {}", err);
-                                    action::none()
-                                }
-                            }
-                        },
-                        |x| x,
-                    );
-                }
-            }
-            Message::ProjectSearchValue(value) => {
-                self.project_search_has_focus = true;
-                self.project_search_value = value;
             }
             Message::PromptSaveChanges(entity) => {
                 self.dialog_page_opt = Some(DialogPage::PromptSaveClose(entity));
@@ -2517,9 +1881,6 @@ impl Application for App {
                     self.core.window.show_context = true;
                 }
 
-                self.project_search_has_focus = self.core.window.show_context
-                    && self.context_page == ContextPage::ProjectSearch;
-
                 // Ensure focus of correct input
                 return self.update_focus();
             }
@@ -2596,11 +1957,6 @@ impl Application for App {
                 Message::ToggleContextPage(ContextPage::DocumentStatistics),
             )
             .title(fl!("document-statistics")),
-            ContextPage::ProjectSearch => context_drawer::context_drawer(
-                self.project_search(),
-                Message::ToggleContextPage(ContextPage::ProjectSearch),
-            )
-            .title(fl!("project-search")),
             ContextPage::Settings => context_drawer::context_drawer(
                 self.settings(),
                 Message::ToggleContextPage(ContextPage::Settings),
@@ -2620,7 +1976,6 @@ impl Application for App {
             &self.config,
             &self.config_state,
             &self.key_binds,
-            &self.projects,
             has_selection,
         )]
     }
