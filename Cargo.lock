@@ -4250,6 +4250,7 @@ dependencies = [
  "palette",
  "phf",
  "rfd",
+ "ron",
  "roxmltree",
  "rust-embed",
  "rustix 1.1.5",

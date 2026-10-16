@@ -50,7 +50,15 @@ features = ["syntect", "vi"]
 path = "../libcosmic"
 default-features = false
 #TODO: a11y feature crashes file choser dialog
-features = ["about", "multi-window", "tokio", "winit", "surface-message"]
+# WMDE: single-instance - a file opened while the notepad runs goes to its window.
+features = [
+    "about",
+    "multi-window",
+    "single-instance",
+    "tokio",
+    "winit",
+    "surface-message",
+]
 
 [target.'cfg(unix)'.dependencies]
 fork = "0.2"

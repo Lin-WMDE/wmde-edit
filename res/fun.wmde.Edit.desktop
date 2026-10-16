@@ -12,3 +12,9 @@ Icon=fun.wmde.Edit
 Categories=Utility;TextEditor;
 Keywords=Text;Editor;Notepad;
 Keywords[uk]=Текст;Редактор;Блокнот;
+Actions=new-window;
+
+[Desktop Action new-window]
+Name=New Window
+Name[uk]=Нове вікно
+Exec=wmde-edit --new-window

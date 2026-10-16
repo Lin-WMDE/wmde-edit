@@ -169,6 +169,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         };
 
+    // WMDE: one notepad. Files given on the command line go to the window that is already
+    // open, through D-Bus activation; `--new-window` (the desktop action and New window in
+    // the menu) starts a window of its own instead. Paths are made absolute here because
+    // the running instance has a different working directory.
+    let mut new_window = false;
+    let mut paths = Vec::new();
+    for arg in env::args_os().skip(1) {
+        if arg == "--new-window" {
+            new_window = true;
+            continue;
+        }
+        let path = PathBuf::from(arg);
+        paths.push(path::absolute(&path).unwrap_or(path));
+    }
+
     let mut settings = Settings::default();
     settings = settings.size_limits(Limits::NONE.min_width(360.0).min_height(180.0));
     settings = settings.exit_on_close(false);
@@ -178,8 +193,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         config,
         config_state_handler,
         config_state,
+        action: (!paths.is_empty()).then(|| OPEN_ACTION.to_string()),
+        paths,
     };
-    cosmic::app::run::<App>(settings, flags)?;
+    if new_window {
+        cosmic::app::run::<App>(settings, flags)?;
+    } else {
+        cosmic::app::run_single_instance::<App>(settings, flags)?;
+    }
 
     Ok(())
 }
@@ -292,12 +313,41 @@ impl MenuAction for Action {
     }
 }
 
+// WMDE: the D-Bus activation action that hands files to the running notepad.
+const OPEN_ACTION: &str = "open";
+
 #[derive(Clone, Debug)]
 pub struct Flags {
     config_handler: Option<cosmic_config::Config>,
     config: Config,
     config_state_handler: Option<cosmic_config::Config>,
     config_state: ConfigState,
+    // WMDE: files from the command line, absolute, and the activation action that carries
+    // them to a running instance.
+    paths: Vec<PathBuf>,
+    action: Option<String>,
+}
+
+impl cosmic::app::CosmicFlags for Flags {
+    type SubCommand = String;
+    type Args = Vec<String>;
+
+    fn action(&self) -> Option<&String> {
+        self.action.as_ref()
+    }
+
+    fn args(&self) -> Vec<&str> {
+        self.paths
+            .iter()
+            .filter_map(|path| {
+                let arg = path.to_str();
+                if arg.is_none() {
+                    log::warn!("cannot pass {:?} to the running notepad: not UTF-8", path);
+                }
+                arg
+            })
+            .collect()
+    }
 }
 
 #[derive(Debug)]
@@ -507,6 +557,22 @@ impl App {
                     .id();
                 self.update_watcher();
                 Some(entity)
+            }
+        }
+    }
+
+    /// WMDE: opens `path` the way the Open dialog does - into the active tab when that is an
+    /// untouched new document, otherwise into a new tab; a file that is open already is
+    /// switched to.
+    fn open_path(&mut self, path: PathBuf) {
+        match self.active_tab() {
+            Some(Tab::Editor(tab))
+                if tab.path_opt.is_none() && !tab.editor.lock().unwrap().changed() =>
+            {
+                self.replace_tab(path, self.tab_model.active());
+            }
+            _ => {
+                self.open_tab(Some(path));
             }
         }
     }
@@ -1313,8 +1379,7 @@ impl Application for App {
             status_popup: None,
         };
 
-        for arg in env::args().skip(1) {
-            let path = PathBuf::from(arg);
+        for path in flags.paths {
             if path.is_dir() {
                 // WMDE: no projects in the notepad; a folder argument opens nothing.
                 log::warn!(
@@ -1334,6 +1399,49 @@ impl Application for App {
         //TODO: try update_config here? It breaks loading system theme by default
         let command = app.update_tab();
         (app, command)
+    }
+
+    /// WMDE: another launch of the notepad handed over its files, or none.
+    fn dbus_activation(&mut self, msg: cosmic::dbus_activation::Message) -> Task<Message> {
+        use cosmic::dbus_activation::Details;
+        match msg.msg {
+            Details::Activate => {
+                // Launched without files: a fresh document, unless one is already in front.
+                let blank = matches!(
+                    self.active_tab(),
+                    Some(Tab::Editor(tab))
+                        if tab.path_opt.is_none() && !tab.editor.lock().unwrap().changed()
+                );
+                if !blank {
+                    self.open_tab(None);
+                }
+            }
+            Details::Open { url } => {
+                for url in url {
+                    match url.to_file_path() {
+                        Ok(path) => self.open_path(path),
+                        Err(()) => log::warn!("cannot open {}: not a local file", url),
+                    }
+                }
+            }
+            Details::ActivateAction { action, args } => {
+                if action == OPEN_ACTION {
+                    for arg in args {
+                        self.open_path(PathBuf::from(arg));
+                    }
+                } else {
+                    log::warn!("unknown activation action {:?}", action);
+                }
+            }
+        }
+        let mut tasks = vec![self.update_tab()];
+        // libcosmic only unminimizes the window; the token raises and focuses it.
+        if let Some(token) = msg.activation_token {
+            tasks.push(cosmic::task::message(cosmic::Action::Cosmic(
+                cosmic::app::Action::Activate(token),
+            )));
+        }
+        Task::batch(tasks)
     }
 
     fn on_app_exit(&mut self) -> Option<Message> {
@@ -1796,7 +1904,8 @@ impl Application for App {
             Message::NewWindow => {
                 //TODO: support multi-window in winit
                 match env::current_exe() {
-                    Ok(exe) => match process::Command::new(&exe).spawn() {
+                    // WMDE: a window of its own, not a hand-over to this one.
+                    Ok(exe) => match process::Command::new(&exe).arg("--new-window").spawn() {
                         Ok(_child) => {}
                         Err(err) => {
                             log::error!("failed to execute {:?}: {}", exe, err);
