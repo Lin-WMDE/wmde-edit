@@ -1340,7 +1340,7 @@ dependencies = [
  "iced_futures",
  "known-folders",
  "notify",
- "ron",
+ "ron 0.12.2",
  "serde",
  "tokio",
  "tracing",
@@ -1439,7 +1439,7 @@ dependencies = [
  "dirs 6.0.0",
  "hex_color",
  "palette",
- "ron",
+ "ron 0.12.2",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -4250,7 +4250,7 @@ dependencies = [
  "palette",
  "phf",
  "rfd",
- "ron",
+ "ron 0.12.2",
  "roxmltree",
  "rust-embed",
  "rustix 1.1.5",
@@ -6071,6 +6071,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "47b34b781b31e5d73e9fbc8689c70551fd1ade9a19e3e28cfec8580a79290cc4"
 dependencies = [
  "bytemuck",
+]
+
+[[package]]
+name = "ron"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "db09040cc89e461f1a265139777a2bde7f8d8c67c4936f700c63ce3e2904d468"
+dependencies = [
+ "base64 0.22.1",
+ "bitflags 2.13.2",
+ "serde",
+ "serde_derive",
+ "unicode-ident",
 ]
 
 [[package]]
@@ -8587,6 +8600,7 @@ dependencies = [
  "open",
  "paste",
  "regex",
+ "ron 0.11.0",
  "rust-embed",
  "serde",
  "syntect",

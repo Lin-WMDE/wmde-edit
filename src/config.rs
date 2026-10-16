@@ -21,6 +21,9 @@ pub struct Config {
     pub font_size_zoom_step_mul_100: u16,
     pub highlight_current_line: bool,
     pub line_numbers: bool,
+    /// WMDE: someone's own key bindings over the shipped ones, written by the settings
+    /// application (res/app-shortcuts/fun.wmde.Edit.ron).
+    pub shortcuts_custom: crate::key_bind::Shortcuts,
     /// WMDE: the status bar under the text.
     pub status_bar: bool,
     pub syntax_theme_dark: String,
@@ -44,6 +47,7 @@ impl Default for Config {
             font_size_zoom_step_mul_100: 100,
             highlight_current_line: true,
             line_numbers: true,
+            shortcuts_custom: crate::key_bind::Shortcuts::new(),
             status_bar: true,
             syntax_theme_dark: "WMDE Dark".to_string(),
             syntax_theme_light: "WMDE Light".to_string(),

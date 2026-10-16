@@ -684,6 +684,8 @@ impl App {
     }
 
     fn update_config(&mut self) -> Task<Message> {
+        // WMDE: the settings application may have rebound a key.
+        self.key_binds = key_binds(&self.config.shortcuts_custom);
         //TODO: provide iterator over data
         let entities: Vec<_> = self.tab_model.iter().collect();
         for entity in entities {
@@ -1349,6 +1351,8 @@ impl Application for App {
                 ),
             ]);
 
+        let key_binds = key_binds(&flags.config.shortcuts_custom);
+
         let mut app = App {
             core,
             about,
@@ -1357,7 +1361,7 @@ impl Application for App {
             config: flags.config,
             config_state_handler: flags.config_state_handler,
             config_state: flags.config_state,
-            key_binds: key_binds(),
+            key_binds,
             zoom_step_names,
             zoom_steps,
             font_names,

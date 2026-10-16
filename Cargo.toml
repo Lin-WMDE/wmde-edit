@@ -63,6 +63,10 @@ features = [
 [target.'cfg(unix)'.dependencies]
 fork = "0.2"
 
+[dev-dependencies]
+# WMDE: the test that reads res/app-shortcuts/fun.wmde.Edit.ron
+ron = "0.11"
+
 [features]
 default = ["dbus-config", "gvfs", "wgpu", "wayland"]
 dbus-config = ["libcosmic/dbus-config"]

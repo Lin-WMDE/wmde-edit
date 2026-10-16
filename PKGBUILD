@@ -61,6 +61,10 @@ package() {
   install -Dm755 "${CARGO_TARGET_DIR:-target}/release/wmde-edit" "$pkgdir/usr/bin/wmde-edit"
   install -Dm644 "res/$appid.desktop" "$pkgdir/usr/share/applications/$appid.desktop"
   install -Dm644 "res/$appid.metainfo.xml" "$pkgdir/usr/share/metainfo/$appid.metainfo.xml"
+  # The key bindings the notepad handles itself, so that Settings can offer a page for them
+  # without knowing anything about the notepad.
+  install -Dm644 "res/app-shortcuts/$appid.ron" \
+    "$pkgdir/usr/share/wmde/app-shortcuts/$appid.ron"
   # App icons (all sizes) for the icon theme lookup. The icon name is the application id,
   # which is also what the window reports - a mismatch leaves the task bar button blank.
   for icon in res/icons/hicolor/*/apps/"$appid".svg; do
