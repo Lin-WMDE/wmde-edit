@@ -228,7 +228,7 @@ impl Action {
         match self {
             Self::Todo => Message::Todo,
             Self::NoOp => Message::NoOp,
-            Self::About => Message::ToggleContextPage(ContextPage::About),
+            Self::About => Message::OpenAbout,
             Self::CloseFile => Message::CloseFile,
             Self::Copy => Message::Copy,
             Self::Cut => Message::Cut,
@@ -349,6 +349,7 @@ pub enum Message {
     NoOp,
     NotifyEvent(notify::Event),
     NotifyWatcher(WatcherWrapper),
+    OpenAbout,
     OpenFile(PathBuf),
     OpenFileDialog,
     OpenFileResult(DialogResult),
@@ -393,7 +394,6 @@ pub enum Message {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ContextPage {
-    About,
     DocumentStatistics,
     Settings,
 }
@@ -846,7 +846,89 @@ impl App {
     }
 }
 
-/// Implement [`cosmic::Application`] to integrate with COSMIC.
+// WMDE: 16px icon plus 8px of padding on each side. The title-bar strip reserves exactly this
+// much for the button, so keep the two in step.
+const WMDE_NEW_TAB_BUTTON_WIDTH: f32 = 32.0;
+
+// WMDE: the new-document button right after the tabs in the title bar.
+fn wmde_new_tab_button<'a>() -> Element<'a, Message> {
+    // WMDE: the only unlabelled button in the title strip, so it carries a tooltip. Below,
+    // not above: the strip is the top edge of the window and there is no room over it.
+    widget::tooltip(
+        button::custom(icon_cache_get("list-add-symbolic", 16))
+            .on_press(Message::NewFile)
+            .padding(8)
+            .class(style::Button::Icon),
+        widget::text::body(fl!("new-file")),
+        widget::tooltip::Position::Bottom,
+    )
+    .into()
+}
+
+// WMDE: Win11-style tabs, the same as wmde-term's title-bar strip - the active tab uses the
+// menu-row color so it connects to the strip below it, rounded only on top, no accent
+// underline, neutral text.
+fn wmde_tab_style() -> style::SegmentedButton {
+    use cosmic::widget::segmented_button::{Appearance, ItemAppearance, ItemStatusAppearance};
+    style::SegmentedButton::Custom(Box::new(move |theme| {
+        let cosmic = theme.cosmic();
+        let rad = cosmic.corner_radii.radius_s;
+        let top_round = iced::border::Radius::from([rad[0], rad[1], 0.0, 0.0]);
+        let body = cosmic::widget::header_strip_color(theme);
+        let on = iced::Color::from(cosmic.background(theme.transparent).on);
+        // WMDE: nudge the fill towards the text colour - lighter in a dark theme, darker in a
+        // light one. A translucent copy of the fill would have made the ACTIVE tab look weaker
+        // under the cursor, because libcosmic draws the hover appearance instead of the active
+        // one for whichever tab is hovered, active or not. The hover step is 0.20, the same
+        // nominal strength every other list in WMDE hovers with.
+        let toward_ink = |t: f32| iced::Color {
+            r: body.r + (on.r - body.r) * t,
+            g: body.g + (on.g - body.g) * t,
+            b: body.b + (on.b - body.b) * t,
+            a: 1.0,
+        };
+        let item = |radius| ItemAppearance {
+            border: iced::Border {
+                radius,
+                ..Default::default()
+            },
+        };
+        let active = ItemStatusAppearance {
+            background: Some(iced::Background::Color(body)),
+            first: item(top_round),
+            middle: item(top_round),
+            last: item(top_round),
+            text_color: on,
+        };
+        Appearance {
+            background: None,
+            border: iced::Border::default(),
+            // WMDE: the active tab is read by merging into the menu row painted the same
+            // colour, so an underline would only draw a line across that seam.
+            active_width: 0.0,
+            active,
+            inactive: ItemStatusAppearance {
+                background: None,
+                // WMDE: dim the same ink rather than switch to component.on, which is DARKER
+                // than background.on in the light palette and inverted the emphasis there.
+                text_color: iced::Color { a: 0.65, ..on },
+                ..active
+            },
+            hover: ItemStatusAppearance {
+                background: Some(iced::Background::Color(toward_ink(0.20))),
+                text_color: on,
+                ..active
+            },
+            pressed: ItemStatusAppearance {
+                background: Some(iced::Background::Color(toward_ink(0.26))),
+                text_color: on,
+                ..active
+            },
+        }
+    }))
+}
+
+/// Implement [`cosmic::Application`] to integrate with WMDE.
 impl Application for App {
     /// Default async executor to use with the app.
     type Executor = executor::Default;
@@ -871,6 +953,11 @@ impl Application for App {
     /// Creates the application, and optionally emits command on initialize.
     fn init(mut core: Core, flags: Self::Flags) -> (Self, Task<Self::Message>) {
         core.window.context_is_overlay = false;
+        // WMDE: the tabs variant of the title bar, like Files and Terminal; the menu sits on
+        // the strip below it (see `view`).
+        core.window.title_bar = cosmic::app::TitleBar::Tabs;
+        // WMDE: edge-to-edge body, so the menu strip spans the whole window width.
+        core.window.content_container = false;
 
         // Update font name from config
         {
@@ -1459,6 +1546,9 @@ impl Application for App {
                     log::warn!("message did not contain notify watcher");
                 }
             },
+            Message::OpenAbout => {
+                return self.open_about(self.about.clone());
+            }
             Message::OpenFile(path) => {
                 self.open_tab(Some(path));
                 return self.update_tab();
@@ -1919,11 +2009,6 @@ impl Application for App {
         }
 
         Some(match self.context_page {
-            ContextPage::About => context_drawer::about(
-                &self.about,
-                |s| Message::LaunchUrl(s.to_string()),
-                Message::ToggleContextPage(ContextPage::About),
-            ),
             ContextPage::DocumentStatistics => context_drawer::context_drawer(
                 self.document_statistics(),
                 Message::ToggleContextPage(ContextPage::DocumentStatistics),
@@ -1938,18 +2023,41 @@ impl Application for App {
     }
 
     fn header_start(&self) -> Vec<Element<'_, Message>> {
-        let has_selection = match self.active_tab() {
-            Some(Tab::Editor(tab)) => tab.editor.lock().unwrap().selection() != Selection::None,
-            None => false,
-        };
-
-        vec![menu_bar(
-            &self.core,
-            &self.config,
-            &self.config_state,
-            &self.key_binds,
-            has_selection,
-        )]
+        // WMDE: browser-style tabs at the left of the CSD title bar (Win11-like). The menu
+        // moved to a strip of its own below.
+        let cosmic_theme::Spacing { space_xxs, .. } = self.core().system_theme().cosmic().spacing;
+        // WMDE: the "+" follows the tabs, and the tab strip is capped so that it can never
+        // take the button's width. `responsive` hands us the room the header has left, which
+        // is the only place that number is known. Once the tabs fill the bar the strip
+        // collapses to its scroll arrows and "right after the tabs" ends up exactly where the
+        // button used to sit - just left of the window controls.
+        vec![
+            widget::responsive(move |size| {
+                let strip_max = (size.width - WMDE_NEW_TAB_BUTTON_WIDTH).max(0.0);
+                widget::row::with_children(vec![
+                    widget::container(
+                        widget::tab_bar::horizontal(&self.tab_model)
+                            .button_height(32)
+                            .button_spacing(space_xxs)
+                            .style(wmde_tab_style())
+                            .enable_tab_drag(String::from("x-wmde-edit/tab"))
+                            .on_reorder(Message::ReorderTab)
+                            .tab_drag_threshold(25.)
+                            .on_activate(Message::TabActivate)
+                            .on_close(Message::TabClose)
+                            .width(Length::Shrink),
+                    )
+                    .max_width(strip_max)
+                    .into(),
+                    wmde_new_tab_button(),
+                ])
+                .align_y(Alignment::Center)
+                .into()
+            })
+            .width(Length::Shrink)
+            .height(Length::Shrink)
+            .into(),
+        ]
     }
 
     fn view(&self) -> Element<'_, Message> {
@@ -1960,30 +2068,6 @@ impl Application for App {
         } = self.core().system_theme().cosmic().spacing;
 
         let mut tab_column = widget::column::with_capacity(3).padding([space_none, space_xxs]);
-
-        tab_column = tab_column.push(
-            widget::row::with_capacity(2)
-                .align_y(Alignment::Center)
-                .push(
-                    widget::tab_bar::horizontal(&self.tab_model)
-                        .button_height(32)
-                        .enable_tab_drag(String::from("x-wmde-edit/tab"))
-                        .on_reorder(Message::ReorderTab)
-                        .tab_drag_threshold(25.)
-                        .button_spacing(space_xxs)
-                        .close_icon(icon_cache_get("window-close-symbolic", 16))
-                        //TODO: this causes issues with small window sizes .minimum_button_width(240)
-                        .on_activate(Message::TabActivate)
-                        .on_close(Message::TabClose)
-                        .width(Length::Shrink),
-                )
-                .push(
-                    button::custom(icon_cache_get("list-add-symbolic", 16))
-                        .on_press(Message::NewFile)
-                        .padding(space_xxs)
-                        .class(style::Button::Icon),
-                ),
-        );
 
         let tab_id = self.tab_model.active();
         match self.tab_model.data::<Tab>(tab_id) {
@@ -2172,7 +2256,29 @@ impl Application for App {
                 .push(widget::layer_container(column).layer(cosmic_theme::Layer::Primary));
         }
 
-        let content: Element<_> = tab_column.into();
+        let has_selection = match self.active_tab() {
+            Some(Tab::Editor(tab)) => tab.editor.lock().unwrap().selection() != Selection::None,
+            None => false,
+        };
+
+        // WMDE: full-width menu strip under the title bar, like wmde-files and wmde-term. It
+        // shares the active tab's color, so the tab reads as connected to the strip.
+        let content: Element<_> = widget::column::with_children(vec![
+            widget::container(menu_bar(
+                &self.core,
+                &self.config,
+                &self.config_state,
+                &self.key_binds,
+                has_selection,
+            ))
+            .class(cosmic::widget::header_strip_class())
+            .width(Length::Fill)
+            .into(),
+            tab_column.into(),
+        ])
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .into();
 
         // Uncomment to debug layout:
         //content.explain(cosmic::iced::Color::WHITE)

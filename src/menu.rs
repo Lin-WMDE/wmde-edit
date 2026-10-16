@@ -191,7 +191,7 @@ pub fn menu_bar<'a>(
     }
 
     responsive_menu_bar()
-        .item_height(ItemHeight::Dynamic(40))
+        .item_height(ItemHeight::Dynamic(20))
         .item_width(ItemWidth::Uniform(320))
         .spacing(4.0)
         .into_element(
