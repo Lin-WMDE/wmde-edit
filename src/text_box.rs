@@ -48,6 +48,9 @@ pub struct TextBox<'a, Message> {
     padding: Padding,
     on_auto_scroll: Option<Box<dyn Fn(Option<f32>) -> Message + 'a>>,
     on_changed: Option<Message>,
+    // WMDE: the status bar shows the cursor position, and the cursor moves without any
+    // other message reaching the application.
+    on_cursor_moved: Option<Message>,
     on_focus: Option<Message>,
     click_timing: Duration,
     has_context_menu: bool,
@@ -68,6 +71,7 @@ where
             padding: Padding::new(0.0),
             on_auto_scroll: None,
             on_changed: None,
+            on_cursor_moved: None,
             on_focus: None,
             click_timing: Duration::from_millis(500),
             has_context_menu: false,
@@ -94,6 +98,11 @@ where
 
     pub fn on_changed(mut self, on_changed: Message) -> Self {
         self.on_changed = Some(on_changed);
+        self
+    }
+
+    pub fn on_cursor_moved(mut self, on_cursor_moved: Message) -> Self {
+        self.on_cursor_moved = Some(on_cursor_moved);
         self
     }
 
@@ -974,6 +983,7 @@ where
         let (buffer_size, buffer_scroll) =
             editor.with_buffer(|buffer| (buffer.size(), buffer.scroll()));
         let last_changed = editor.changed();
+        let last_cursor = editor.cursor();
         //TODO: better handling of status line update
         let (last_parser_mode, last_parser_cmd) = {
             let parser = editor.parser();
@@ -1400,6 +1410,12 @@ where
             {
                 shell.publish(on_changed.clone());
             }
+        }
+
+        if let Some(on_cursor_moved) = &self.on_cursor_moved
+            && editor.cursor() != last_cursor
+        {
+            shell.publish(on_cursor_moved.clone());
         }
 
         if editor.redraw() {

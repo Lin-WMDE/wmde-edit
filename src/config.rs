@@ -21,6 +21,8 @@ pub struct Config {
     pub font_size_zoom_step_mul_100: u16,
     pub highlight_current_line: bool,
     pub line_numbers: bool,
+    /// WMDE: the status bar under the text.
+    pub status_bar: bool,
     pub syntax_theme_dark: String,
     pub syntax_theme_light: String,
     pub tab_width: u16,
@@ -42,6 +44,7 @@ impl Default for Config {
             font_size_zoom_step_mul_100: 100,
             highlight_current_line: true,
             line_numbers: true,
+            status_bar: true,
             syntax_theme_dark: "WMDE Dark".to_string(),
             syntax_theme_light: "WMDE Light".to_string(),
             tab_width: 4,

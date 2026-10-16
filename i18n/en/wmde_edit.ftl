@@ -131,3 +131,6 @@ save-as-utf8 = Save as UTF-8
 ok = OK
 reopen-with-encoding = Reopen with encoding
 encoding-choice = Encoding
+status-bar = Status bar
+status-position = Ln { $line }, Col { $column }
+save-with-encoding = Save with encoding

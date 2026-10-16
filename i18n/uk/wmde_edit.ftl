@@ -142,3 +142,6 @@ save-as-utf8 = Зберегти в UTF-8
 ok = Гаразд
 reopen-with-encoding = Відкрити в кодуванні
 encoding-choice = Кодування
+status-bar = Рядок стану
+status-position = Рядок { $line }, стовпець { $column }
+save-with-encoding = Зберігати в кодуванні

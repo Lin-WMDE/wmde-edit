@@ -318,6 +318,12 @@ pub fn menu_bar<'a>(
                             config.highlight_current_line,
                             Action::ToggleHighlightCurrentLine,
                         ),
+                        MenuItem::CheckBox(
+                            fl!("status-bar"),
+                            None,
+                            config.status_bar,
+                            Action::ToggleStatusBar,
+                        ),
                         //TODO: MenuItem::CheckBox(fl!("syntax-highlighting"), Action::Todo),
                         MenuItem::Divider,
                         MenuItem::Button(fl!("menu-settings"), None, Action::ToggleSettingsPage),

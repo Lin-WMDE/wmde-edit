@@ -223,6 +223,7 @@ pub enum Action {
     ToggleHighlightCurrentLine,
     ToggleLineNumbers,
     ToggleSettingsPage,
+    ToggleStatusBar,
     ToggleWordWrap,
     Undo,
     ZoomIn,
@@ -274,6 +275,7 @@ impl Action {
             Self::ToggleHighlightCurrentLine => Message::ToggleHighlightCurrentLine,
             Self::ToggleLineNumbers => Message::ToggleLineNumbers,
             Self::ToggleSettingsPage => Message::ToggleContextPage(ContextPage::Settings),
+            Self::ToggleStatusBar => Message::ToggleStatusBar,
             Self::ToggleWordWrap => Message::ToggleWordWrap,
             Self::Undo => Message::Undo,
             Self::ZoomIn => Message::ZoomIn,
@@ -330,6 +332,7 @@ pub enum Message {
     CloseFile,
     CloseWindow(window::Id),
     Copy,
+    CursorMoved,
     Cut,
     DefaultFont(usize),
     DefaultFontSize(usize),
@@ -380,6 +383,7 @@ pub enum Message {
     SaveAsUtf8(segmented_button::Entity),
     SetEncoding(TextEncoding),
     SetLineEnding(LineEnding),
+    StatusPopup(Option<StatusPopup>),
     Scroll(f32),
     SelectAll,
     Surface(surface::Action<Message>),
@@ -401,6 +405,7 @@ pub enum Message {
     ToggleContextPage(ContextPage),
     ToggleHighlightCurrentLine,
     ToggleLineNumbers,
+    ToggleStatusBar,
     ToggleWordWrap,
     Undo,
     VimBindings(bool),
@@ -424,6 +429,13 @@ enum DialogPage {
 
 // WMDE: the id of the encoding chooser in the Save as dialog.
 const ENCODING_CHOICE: &str = "encoding";
+
+/// WMDE: the chooser open over a status bar item.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StatusPopup {
+    Encoding,
+    LineEnding,
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Find {
@@ -462,6 +474,7 @@ pub struct App {
         HashSet<(PathBuf, RecursiveMode)>,
     )>,
     modifiers: Modifiers,
+    status_popup: Option<StatusPopup>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -830,6 +843,132 @@ impl App {
         .into()
     }
 
+    /// WMDE: Win11-style status bar at the bottom of the body, edge to edge like the one in
+    /// Files: the cursor position, then the line ending and the encoding, each of which
+    /// opens a chooser above it.
+    fn status_bar(&self) -> Option<Element<'_, Message>> {
+        if !self.config.status_bar {
+            return None;
+        }
+        let Some(Tab::Editor(tab)) = self.active_tab() else {
+            return None;
+        };
+        let cosmic_theme::Spacing {
+            space_xxxs,
+            space_xxs,
+            space_xs,
+            space_s,
+            ..
+        } = cosmic::theme::spacing();
+
+        let (line, column) = {
+            let editor = tab.editor.lock().unwrap();
+            let cursor = editor.cursor();
+            // The cursor index is a byte offset; people count characters.
+            let column = editor.with_buffer(|buffer| {
+                buffer
+                    .lines
+                    .get(cursor.line)
+                    .and_then(|line| line.text().get(..cursor.index))
+                    .map_or(0, |text| text.chars().count())
+            });
+            (cursor.line + 1, column + 1)
+        };
+
+        let item = |label: String, popup: StatusPopup, content: Element<'static, Message>| {
+            let open = self.status_popup == Some(popup);
+            let button = button::custom(widget::text::caption(label))
+                .padding([0, space_xxs])
+                .class(style::Button::Text)
+                .on_press(Message::StatusPopup((!open).then_some(popup)));
+            if open {
+                widget::popover(button)
+                    .position(widget::popover::Position::Top)
+                    .on_close(Message::StatusPopup(None))
+                    .popup(content)
+                    .into()
+            } else {
+                Element::from(button)
+            }
+        };
+        let separator = || {
+            widget::container(widget::divider::vertical::default())
+                .height(Length::Fixed(12.0))
+                .into()
+        };
+
+        let line_ending = item(
+            line_ending_label(tab.line_ending),
+            StatusPopup::LineEnding,
+            status_menu(vec![(
+                None,
+                LineEnding::ALL
+                    .iter()
+                    .map(|ending| {
+                        (
+                            line_ending_label(*ending),
+                            *ending == tab.line_ending,
+                            Some(Message::SetLineEnding(*ending)),
+                        )
+                    })
+                    .collect(),
+            )]),
+        );
+        let has_path = tab.path_opt.is_some();
+        let encoding = item(
+            tab.encoding.name().to_string(),
+            StatusPopup::Encoding,
+            status_menu(vec![
+                (
+                    Some(fl!("reopen-with-encoding")),
+                    TextEncoding::ALL
+                        .iter()
+                        .map(|encoding| {
+                            (
+                                encoding.name().to_string(),
+                                false,
+                                has_path.then_some(Message::ReopenWithEncoding(*encoding)),
+                            )
+                        })
+                        .collect(),
+                ),
+                (
+                    Some(fl!("save-with-encoding")),
+                    TextEncoding::ALL
+                        .iter()
+                        .map(|encoding| {
+                            (
+                                encoding.name().to_string(),
+                                *encoding == tab.encoding,
+                                Some(Message::SetEncoding(*encoding)),
+                            )
+                        })
+                        .collect(),
+                ),
+            ]),
+        );
+
+        let row = widget::row::with_children(vec![
+            widget::space::horizontal().into(),
+            widget::text::caption(fl!("status-position", line = line, column = column)).into(),
+            separator(),
+            line_ending,
+            separator(),
+            encoding,
+        ])
+        .align_y(Alignment::Center)
+        .spacing(space_xs)
+        .padding([space_xxxs, space_s]);
+
+        Some(
+            widget::column::with_children(vec![
+                widget::divider::horizontal::default().into(),
+                row.into(),
+            ])
+            .into(),
+        )
+    }
+
     fn settings(&self) -> Element<'_, Message> {
         let dark_selected = self
             .theme_names
@@ -903,6 +1042,67 @@ impl App {
         ])
         .into()
     }
+}
+
+// WMDE: how the status bar and its chooser name a line ending - the platform first, the
+// way Notepad shows it.
+fn line_ending_label(ending: LineEnding) -> String {
+    match ending {
+        LineEnding::Lf => format!("Unix ({})", ending.name()),
+        LineEnding::CrLf => format!("Windows ({})", ending.name()),
+    }
+}
+
+// WMDE: a section of a status bar chooser: an optional heading, then items as label,
+// checked, and the message to send (none shows the item disabled).
+type StatusMenuSection = (Option<String>, Vec<(String, bool, Option<Message>)>);
+
+// WMDE: a chooser over a status bar item, with a check mark on the current item.
+fn status_menu(sections: Vec<StatusMenuSection>) -> Element<'static, Message> {
+    let cosmic_theme::Spacing {
+        space_xxxs,
+        space_xxs,
+        space_xs,
+        ..
+    } = cosmic::theme::spacing();
+    let mut column = widget::column::with_capacity(sections.len() * 8);
+    for (i, (heading, items)) in sections.into_iter().enumerate() {
+        if i > 0 {
+            column = column.push(
+                widget::container(widget::divider::horizontal::default()).padding([space_xxs, 0]),
+            );
+        }
+        if let Some(heading) = heading {
+            column = column.push(
+                widget::container(widget::text::caption_heading(heading))
+                    .padding([space_xxxs, space_xs]),
+            );
+        }
+        for (label, checked, message) in items {
+            let mark: Element<'static, Message> = if checked {
+                icon_cache_get("object-select-symbolic", 16).into()
+            } else {
+                widget::space::horizontal()
+                    .width(Length::Fixed(16.0))
+                    .into()
+            };
+            column = column.push(
+                button::custom(
+                    widget::row::with_children(vec![mark, widget::text::body(label).into()])
+                        .align_y(Alignment::Center)
+                        .spacing(space_xs),
+                )
+                .padding([space_xxxs, space_xs])
+                .width(Length::Fill)
+                .class(style::Button::MenuItem)
+                .on_press_maybe(message),
+            );
+        }
+    }
+    widget::container(column.width(Length::Fixed(220.0)))
+        .padding(space_xxs)
+        .class(style::Container::Dropdown)
+        .into()
 }
 
 // WMDE: 16px icon plus 8px of padding on each side. The title-bar strip reserves exactly this
@@ -1110,6 +1310,7 @@ impl Application for App {
             find_search_value: String::new(),
             watcher_opt: None,
             modifiers: Modifiers::empty(),
+            status_popup: None,
         };
 
         for arg in env::args().skip(1) {
@@ -1146,7 +1347,10 @@ impl Application for App {
 
     //TODO: currently the first escape unfocuses, and the second calls this function
     fn on_escape(&mut self) -> Task<Message> {
-        if self.core.window.show_context {
+        if self.status_popup.is_some() {
+            // WMDE: close a status bar chooser first
+            self.status_popup = None;
+        } else if self.core.window.show_context {
             // Close context drawer if open
             self.core.window.show_context = false;
         } else if self.find_opt.is_some() {
@@ -1325,6 +1529,9 @@ impl Application for App {
                         return clipboard::write(selection);
                     }
                 }
+            }
+            Message::CursorMoved => {
+                // Nothing to do: the view is rebuilt and the status bar reads the cursor.
             }
             Message::Cut => {
                 if let Some(Tab::Editor(tab)) = self.active_tab() {
@@ -1739,6 +1946,7 @@ impl Application for App {
                 _ = self.tab_model.reorder(dragged, target, position);
             }
             Message::ReopenWithEncoding(encoding) => {
+                self.status_popup = None;
                 let entity = self.tab_model.active();
                 if let Some(Tab::Editor(tab)) = self.tab_model.data_mut::<Tab>(entity)
                     && let Some(path) = tab.path_opt.clone()
@@ -1877,6 +2085,7 @@ impl Application for App {
                 return self.update(Message::Save(Some(entity)));
             }
             Message::SetEncoding(encoding) => {
+                self.status_popup = None;
                 let entity = self.tab_model.active();
                 if let Some(Tab::Editor(tab)) = self.tab_model.data_mut::<Tab>(entity)
                     && tab.encoding != encoding
@@ -1888,6 +2097,7 @@ impl Application for App {
                 return self.update(Message::TabChanged(entity));
             }
             Message::SetLineEnding(line_ending) => {
+                self.status_popup = None;
                 let entity = self.tab_model.active();
                 if let Some(Tab::Editor(tab)) = self.tab_model.data_mut::<Tab>(entity)
                     && tab.line_ending != line_ending
@@ -1943,6 +2153,8 @@ impl Application for App {
                 }
             },
             Message::TabActivate(entity) => {
+                // WMDE: a status bar chooser belongs to the tab it was opened on
+                self.status_popup = None;
                 // Close save changes dialog if switching to a different tab for consistency
                 if self.dialog_page_opt != Some(DialogPage::PromptSaveClose(entity)) {
                     self.dialog_page_opt = None;
@@ -2123,6 +2335,13 @@ impl Application for App {
 
                 return self.update_config();
             }
+            Message::StatusPopup(status_popup) => {
+                self.status_popup = status_popup;
+            }
+            Message::ToggleStatusBar => {
+                config_set!(status_bar, !self.config.status_bar);
+                return self.update_config();
+            }
             Message::ToggleWordWrap => {
                 config_set!(word_wrap, !self.config.word_wrap);
                 return self.update_config();
@@ -2228,6 +2447,7 @@ impl Application for App {
                     .on_focus(Message::FindFocused(false))
                     .on_auto_scroll(Message::AutoScroll)
                     .on_changed(Message::TabChanged(tab_id))
+                    .on_cursor_moved(Message::CursorMoved)
                     .has_context_menu(tab.context_menu_open)
                     .on_context_menu(move |open| Message::TabContextMenu(tab_id, open));
                 if self.config.highlight_current_line {
@@ -2427,6 +2647,7 @@ impl Application for App {
             .into(),
             tab_column.into(),
         ])
+        .push_maybe(self.status_bar())
         .width(Length::Fill)
         .height(Length::Fill)
         .into();
