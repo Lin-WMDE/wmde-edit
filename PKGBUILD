@@ -6,7 +6,7 @@
 # in, not a runtime package dep). build.rs/xdgen was dropped; res/ templates are installed
 # directly.
 pkgname=wmde-edit
-pkgver=1.10.1
+pkgver=1.10.2
 pkgrel=1
 pkgdesc="WMDE Notepad - plain text editor for the WMDE desktop (fork of cosmic-edit)"
 arch=('x86_64')
@@ -35,9 +35,9 @@ pkgver() {
   local desc
   desc=$(git describe --long --tags --abbrev=7 2>/dev/null || true)
   if [ -n "$desc" ]; then
-    printf '1.10.1.%s.g%s' "$(printf '%s' "$desc" | sed -E 's/.*-([0-9]+)-g[0-9a-f]+$/\1/')" "$(git rev-parse --short=7 HEAD)"
+    printf '1.10.2.%s.g%s' "$(printf '%s' "$desc" | sed -E 's/.*-([0-9]+)-g[0-9a-f]+$/\1/')" "$(git rev-parse --short=7 HEAD)"
   else
-    printf '1.10.1.%s.g%s' "$(git rev-list --count HEAD)" "$(git rev-parse --short=7 HEAD)"
+    printf '1.10.2.%s.g%s' "$(git rev-list --count HEAD)" "$(git rev-parse --short=7 HEAD)"
   fi
 }
 
