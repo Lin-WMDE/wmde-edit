@@ -132,3 +132,13 @@ default-size = Стандартний розмір
 zoom-out = Зменшити
 wrap-around = Циклічний пошук
 comment = Текстовий редактор для стільниці WMDE
+
+# WMDE: encodings and failures
+binary-file = Схоже, це двійковий файл, а не текст.
+unmappable-characters = Деякі символи не можна записати в кодуванні { $encoding }.
+open-failed = Не вдалося відкрити файл
+save-failed = Не вдалося зберегти файл
+save-as-utf8 = Зберегти в UTF-8
+ok = Гаразд
+reopen-with-encoding = Відкрити в кодуванні
+encoding-choice = Кодування

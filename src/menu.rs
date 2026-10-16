@@ -18,7 +18,7 @@ use std::{
     sync::LazyLock,
 };
 
-use crate::{Action, Config, ConfigState, Message, fl};
+use crate::{Action, Config, ConfigState, Message, encoding::TextEncoding, fl};
 
 static MENU_ID: LazyLock<cosmic::widget::Id> =
     LazyLock::new(|| cosmic::widget::Id::new("responsive-menu"));
@@ -214,6 +214,21 @@ pub fn menu_bar<'a>(
                         MenuItem::Button(fl!("save-as"), None, Action::SaveAsDialog),
                         MenuItem::Divider,
                         MenuItem::Button(fl!("revert-all-changes"), None, Action::RevertAllChanges),
+                        // WMDE: read the file again as another encoding.
+                        MenuItem::Folder(
+                            fl!("reopen-with-encoding"),
+                            TextEncoding::ALL
+                                .iter()
+                                .enumerate()
+                                .map(|(i, encoding)| {
+                                    MenuItem::Button(
+                                        encoding.name().to_string(),
+                                        None,
+                                        Action::ReopenWithEncoding(i),
+                                    )
+                                })
+                                .collect(),
+                        ),
                         MenuItem::Divider,
                         MenuItem::Button(
                             fl!("menu-document-statistics"),

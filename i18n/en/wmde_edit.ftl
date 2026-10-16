@@ -121,3 +121,13 @@ syntax-highlighting = Syntax highlighting...
 menu-settings = Settings...
 menu-keyboard-shortcuts = Keyboard shortcuts...
 menu-about = About Notepad...
+
+# WMDE: encodings and failures
+binary-file = This looks like a binary file, not text.
+unmappable-characters = Some characters cannot be written in { $encoding }.
+open-failed = Could not open the file
+save-failed = Could not save the file
+save-as-utf8 = Save as UTF-8
+ok = OK
+reopen-with-encoding = Reopen with encoding
+encoding-choice = Encoding

@@ -9,6 +9,8 @@ rust-version = "1.93"
 [dependencies]
 dirs = "6"
 env_logger = "0.11.8"
+# WMDE: decoding and encoding of non-UTF-8 files (src/encoding.rs)
+encoding_rs = "0.8"
 log = "0.4.28"
 notify = "8.2.0"
 open = "5.3.2"

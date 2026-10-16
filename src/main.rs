@@ -21,7 +21,10 @@ use cosmic::{
     style,
     widget::{self, about::About, button, icon, segmented_button},
 };
-use cosmic_files::dialog::{Dialog, DialogKind, DialogMessage, DialogResult, DialogSettings};
+use cosmic_files::dialog::{
+    Dialog, DialogChoice, DialogChoiceOption, DialogKind, DialogMessage, DialogResult,
+    DialogSettings,
+};
 use cosmic_text::{Cursor, Edit, Family, Selection, SwashCache, SyntaxSystem, ViMode};
 use notify::{RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
@@ -40,6 +43,9 @@ use unicode_segmentation::UnicodeSegmentation;
 use config::{CONFIG_VERSION, Config, ConfigState};
 mod config;
 
+use encoding::{LineEnding, TextEncoding};
+mod encoding;
+
 use icon_cache::IconCache;
 mod icon_cache;
 
@@ -54,7 +60,7 @@ mod localize;
 use self::menu::menu_bar;
 mod menu;
 
-use self::tab::{EditorTab, Tab};
+use self::tab::{EditorTab, SaveError, Tab};
 mod tab;
 
 use self::text_box::text_box;
@@ -195,6 +201,7 @@ pub enum Action {
     Paste,
     Quit,
     Redo,
+    ReopenWithEncoding(usize),
     RevertAllChanges,
     Save,
     SaveAsDialog,
@@ -241,6 +248,9 @@ impl Action {
             Self::Paste => Message::Paste,
             Self::Quit => Message::Quit,
             Self::Redo => Message::Redo,
+            Self::ReopenWithEncoding(index) => {
+                Message::ReopenWithEncoding(TextEncoding::ALL[*index])
+            }
             Self::RevertAllChanges => Message::RevertAllChanges,
             Self::Save => Message::Save(entity_opt),
             Self::SaveAsDialog => Message::SaveAsDialog(entity_opt),
@@ -360,12 +370,16 @@ pub enum Message {
     Quit,
     QuitForce,
     Redo,
+    ReopenWithEncoding(TextEncoding),
     ReorderTab(ReorderEvent),
     RevertAllChanges,
     Save(Option<segmented_button::Entity>),
     SaveAll,
     SaveAsDialog(Option<segmented_button::Entity>),
     SaveAsResult(segmented_button::Entity, DialogResult),
+    SaveAsUtf8(segmented_button::Entity),
+    SetEncoding(TextEncoding),
+    SetLineEnding(LineEnding),
     Scroll(f32),
     SelectAll,
     Surface(surface::Action<Message>),
@@ -402,7 +416,14 @@ pub enum ContextPage {
 enum DialogPage {
     PromptSaveClose(segmented_button::Entity),
     PromptSaveQuit(Vec<segmented_button::Entity>),
+    // WMDE: failures that upstream only logged.
+    OpenFailed(PathBuf, String),
+    SaveFailed(String),
+    Unmappable(segmented_button::Entity, TextEncoding),
 }
+
+// WMDE: the id of the encoding chooser in the Save as dialog.
+const ENCODING_CHOICE: &str = "encoding";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Find {
@@ -531,13 +552,46 @@ impl App {
                     return Some(NewTab::Exists(entity));
                 }
 
-                self.add_to_recents(&canonical);
-
                 let mut tab = EditorTab::new(&self.config);
-                tab.open(canonical);
+                // WMDE: a file that cannot be read says so instead of opening as an empty
+                // untitled tab, and does not go into the recent files.
+                if let Err(err) = tab.open(canonical.clone()) {
+                    self.dialog_page_opt = Some(DialogPage::OpenFailed(canonical, err.to_string()));
+                    return None;
+                }
+                self.add_to_recents(&canonical);
                 Some(NewTab::Tab(tab))
             }
             None => Some(NewTab::Tab(EditorTab::new(&self.config))),
+        }
+    }
+
+    /// WMDE: saves the tab and keeps its title and the recent files in step. A failure
+    /// opens a dialog instead of being only logged, and the tab stays modified.
+    fn save_tab(&mut self, entity: segmented_button::Entity) -> bool {
+        let Some(Tab::Editor(tab)) = self.tab_model.data_mut::<Tab>(entity) else {
+            return false;
+        };
+        match tab.save() {
+            Ok(()) => {
+                let title = tab.title();
+                let path_opt = tab.path_opt.clone();
+                self.tab_model.text_set(entity, title);
+                if let Some(path) = path_opt
+                    && let Ok(canonical) = fs::canonicalize(&path)
+                {
+                    self.add_to_recents(&canonical);
+                }
+                true
+            }
+            Err(SaveError::Unmappable(encoding)) => {
+                self.dialog_page_opt = Some(DialogPage::Unmappable(entity, encoding));
+                false
+            }
+            Err(err) => {
+                self.dialog_page_opt = Some(DialogPage::SaveFailed(err.to_string()));
+                false
+            }
         }
     }
 
@@ -628,7 +682,12 @@ impl App {
                     self.dialog_page_opt = Some(DialogPage::PromptSaveQuit(unsaved));
                 }
             }
-            None => {}
+            Some(
+                DialogPage::OpenFailed(..)
+                | DialogPage::SaveFailed(..)
+                | DialogPage::Unmappable(..),
+            )
+            | None => {}
         }
         Task::none()
     }
@@ -1166,6 +1225,40 @@ impl Application for App {
 
                 Some(dialog.into())
             }
+            DialogPage::OpenFailed(path, message) => Some(
+                widget::dialog()
+                    .title(fl!("open-failed"))
+                    .body(format!("{}\n\n{}", path.display(), message))
+                    .icon(icon::from_name("dialog-error-symbolic").size(64))
+                    .primary_action(
+                        widget::button::suggested(fl!("ok")).on_press(Message::DialogCancel),
+                    )
+                    .into(),
+            ),
+            DialogPage::SaveFailed(message) => Some(
+                widget::dialog()
+                    .title(fl!("save-failed"))
+                    .body(message.clone())
+                    .icon(icon::from_name("dialog-error-symbolic").size(64))
+                    .primary_action(
+                        widget::button::suggested(fl!("ok")).on_press(Message::DialogCancel),
+                    )
+                    .into(),
+            ),
+            DialogPage::Unmappable(entity, encoding) => Some(
+                widget::dialog()
+                    .title(fl!("save-failed"))
+                    .body(fl!("unmappable-characters", encoding = encoding.name()))
+                    .icon(icon::from_name("dialog-warning-symbolic").size(64))
+                    .primary_action(
+                        widget::button::suggested(fl!("save-as-utf8"))
+                            .on_press(Message::SaveAsUtf8(*entity)),
+                    )
+                    .secondary_action(
+                        widget::button::text(fl!("cancel")).on_press(Message::DialogCancel),
+                    )
+                    .into(),
+            ),
         }
     }
 
@@ -1528,7 +1621,8 @@ impl Application for App {
                 for entity in tab_reload {
                     match self.tab_model.data_mut::<Tab>(entity) {
                         Some(Tab::Editor(tab)) => {
-                            tab.reload();
+                            // Logged inside; a file that turned binary keeps its old text.
+                            let _ = tab.reload(None);
                         }
                         _ => {
                             log::warn!("failed to find tab {:?} that needs reload", entity);
@@ -1644,52 +1738,51 @@ impl Application for App {
             }) => {
                 _ = self.tab_model.reorder(dragged, target, position);
             }
+            Message::ReopenWithEncoding(encoding) => {
+                let entity = self.tab_model.active();
+                if let Some(Tab::Editor(tab)) = self.tab_model.data_mut::<Tab>(entity)
+                    && let Some(path) = tab.path_opt.clone()
+                    && let Err(err) = tab.reload(Some(encoding))
+                {
+                    self.dialog_page_opt = Some(DialogPage::OpenFailed(path, err.to_string()));
+                }
+                return self.update(Message::TabChanged(entity));
+            }
             Message::RevertAllChanges => {
-                if let Some(Tab::Editor(tab)) = self.active_tab_mut() {
-                    tab.reload();
+                let entity = self.tab_model.active();
+                if let Some(Tab::Editor(tab)) = self.tab_model.data_mut::<Tab>(entity) {
+                    if let Some(path) = tab.path_opt.clone()
+                        && let Err(err) = tab.reload(None)
+                    {
+                        self.dialog_page_opt = Some(DialogPage::OpenFailed(path, err.to_string()));
+                    }
 
-                    return self.update(Message::TabChanged(self.tab_model.active()));
+                    return self.update(Message::TabChanged(entity));
                 }
             }
             Message::Save(entity_opt) => {
-                let mut title_opt = None;
-
                 let entity = entity_opt.unwrap_or_else(|| self.tab_model.active());
-                if let Some(Tab::Editor(tab)) = self.tab_model.data_mut::<Tab>(entity) {
-                    match tab.path_opt.clone() {
-                        Some(path) => {
-                            title_opt = Some(tab.title());
-                            tab.save();
-                            if let Ok(canonical) = fs::canonicalize(&path) {
-                                self.add_to_recents(&canonical);
-                            }
-                        }
-                        None => {
-                            return self.update(Message::SaveAsDialog(Some(entity)));
-                        }
-                    }
+                if let Some(Tab::Editor(tab)) = self.tab_model.data::<Tab>(entity)
+                    && tab.path_opt.is_none()
+                {
+                    return self.update(Message::SaveAsDialog(Some(entity)));
                 }
-                if let Some(title) = title_opt {
-                    // WMDE: the saved tab, not the active one - Save all and the close prompt
-                    // save tabs that are not active.
-                    self.tab_model.text_set(entity, title);
+                // WMDE: the title goes to the saved tab, not the active one - Save all and the
+                // close prompt save tabs that are not active.
+                if !self.save_tab(entity) {
+                    return Task::none();
                 }
                 return self.update_dialogs();
             }
             Message::SaveAll => {
                 let entities: Vec<_> = self.tab_model.iter().collect();
                 for entity in entities {
-                    if let Some(Tab::Editor(tab)) = self.tab_model.data_mut::<Tab>(entity) {
-                        match tab.path_opt.clone() {
-                            Some(path) => {
-                                tab.save();
-                                if let Ok(canonical) = fs::canonicalize(&path) {
-                                    self.add_to_recents(&canonical);
-                                }
-                            }
-                            None => {
-                                log::warn!("{} has no path when doing save all", tab.title());
-                            }
+                    if let Some(Tab::Editor(tab)) = self.tab_model.data::<Tab>(entity) {
+                        if tab.path_opt.is_none() {
+                            log::warn!("{} has no path when doing save all", tab.title());
+                        } else if !self.save_tab(entity) {
+                            // Stop at the first failure; its dialog is up.
+                            return Task::none();
                         }
                     }
                 }
@@ -1714,39 +1807,95 @@ impl Application for App {
                         if let Some(path) = path_opt {
                             settings = settings.path(path);
                         }
-                        let (dialog, command) =
+                        let selected = TextEncoding::ALL.iter().position(|x| *x == tab.encoding);
+                        let (mut dialog, command) =
                             Dialog::new(settings, Message::DialogMessage, move |result| {
                                 Message::SaveAsResult(entity, result)
                             });
+                        // WMDE: the encoding to write the new file in, preset to the tab's.
+                        dialog.set_choices(vec![DialogChoice::ComboBox {
+                            id: ENCODING_CHOICE.to_string(),
+                            label: fl!("encoding-choice"),
+                            options: TextEncoding::ALL
+                                .iter()
+                                .map(|encoding| DialogChoiceOption {
+                                    id: encoding.name().to_string(),
+                                    label: encoding.name().to_string(),
+                                })
+                                .collect(),
+                            selected,
+                        }]);
                         self.dialog_opt = Some(dialog);
                         return command;
                     }
                 }
             }
             Message::SaveAsResult(entity, result) => {
+                // WMDE: read the encoding chooser before the dialog goes away.
+                let chosen = self.dialog_opt.as_ref().and_then(|dialog| {
+                    dialog.choices().iter().find_map(|choice| match choice {
+                        DialogChoice::ComboBox {
+                            id,
+                            selected: Some(i),
+                            ..
+                        } if id == ENCODING_CHOICE => TextEncoding::ALL.get(*i).copied(),
+                        _ => None,
+                    })
+                });
                 self.dialog_opt = None;
                 match result {
                     DialogResult::Cancel => {}
                     DialogResult::Open(mut paths) => {
                         if !paths.is_empty() {
-                            let mut title_opt = None;
                             if let Some(Tab::Editor(tab)) = self.tab_model.data_mut::<Tab>(entity) {
                                 tab.path_opt = Some(paths.remove(0));
-                                title_opt = Some(tab.title());
-                                tab.save();
-                                if let Some(path) = tab.path_opt.clone()
-                                    && let Ok(canonical) = fs::canonicalize(&path)
-                                {
-                                    self.add_to_recents(&canonical);
+                                if let Some(encoding) = chosen {
+                                    tab.encoding = encoding;
                                 }
                             }
-                            if let Some(title) = title_opt {
-                                self.tab_model.text_set(entity, title);
+                            if !self.save_tab(entity) {
+                                return Task::none();
+                            }
+                            // WMDE: keep the canonical path, as an opened file has, so that
+                            // opening it again finds this tab.
+                            if let Some(Tab::Editor(tab)) = self.tab_model.data_mut::<Tab>(entity)
+                                && let Some(path) = &tab.path_opt
+                                && let Ok(canonical) = fs::canonicalize(path)
+                            {
+                                tab.path_opt = Some(canonical);
                             }
                             return self.update_dialogs();
                         }
                     }
                 }
+            }
+            Message::SaveAsUtf8(entity) => {
+                self.dialog_page_opt = None;
+                if let Some(Tab::Editor(tab)) = self.tab_model.data_mut::<Tab>(entity) {
+                    tab.encoding = TextEncoding::Utf8;
+                }
+                return self.update(Message::Save(Some(entity)));
+            }
+            Message::SetEncoding(encoding) => {
+                let entity = self.tab_model.active();
+                if let Some(Tab::Editor(tab)) = self.tab_model.data_mut::<Tab>(entity)
+                    && tab.encoding != encoding
+                {
+                    tab.encoding = encoding;
+                    // The file on disk no longer matches what Save would write.
+                    tab.editor.lock().unwrap().set_changed(true);
+                }
+                return self.update(Message::TabChanged(entity));
+            }
+            Message::SetLineEnding(line_ending) => {
+                let entity = self.tab_model.active();
+                if let Some(Tab::Editor(tab)) = self.tab_model.data_mut::<Tab>(entity)
+                    && tab.line_ending != line_ending
+                {
+                    tab.line_ending = line_ending;
+                    tab.editor.lock().unwrap().set_changed(true);
+                }
+                return self.update(Message::TabChanged(entity));
             }
             Message::SelectAll => {
                 if let Some(Tab::Editor(tab)) = self.active_tab_mut() {
