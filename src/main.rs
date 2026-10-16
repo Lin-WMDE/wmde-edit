@@ -11,7 +11,7 @@ use cosmic::{
     cosmic_theme, executor,
     font::Font,
     iced::{
-        self, Alignment, Background, Color, Length, Limits, Subscription,
+        self, Alignment, Length, Limits, Subscription,
         advanced::graphics::text::font_system,
         clipboard, event,
         futures::{self, SinkExt},
@@ -21,10 +21,7 @@ use cosmic::{
     style, theme,
     widget::{self, about::About, button, icon, nav_bar, segmented_button},
 };
-use cosmic_files::{
-    dialog::{Dialog, DialogKind, DialogMessage, DialogResult, DialogSettings},
-    mime_icon::{mime_for_path, mime_icon},
-};
+use cosmic_files::dialog::{Dialog, DialogKind, DialogMessage, DialogResult, DialogSettings};
 use cosmic_text::{Cursor, Edit, Family, Selection, SwashCache, SyntaxSystem, ViMode};
 use notify::{RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
@@ -42,9 +39,6 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use config::{AppTheme, CONFIG_VERSION, Config, ConfigState};
 mod config;
-
-use git::{GitDiff, GitDiffLine, GitRepository, GitStatus, GitStatusKind};
-mod git;
 
 use icon_cache::IconCache;
 mod icon_cache;
@@ -66,7 +60,7 @@ mod project;
 use self::search::ProjectSearchResult;
 mod search;
 
-use self::tab::{EditorTab, GitDiffTab, Tab};
+use self::tab::{EditorTab, Tab};
 mod tab;
 
 use self::text_box::text_box;
@@ -229,7 +223,6 @@ pub enum Action {
     TabWidth(u16),
     ToggleAutoIndent,
     ToggleDocumentStatistics,
-    ToggleGitManagement,
     ToggleHighlightCurrentLine,
     ToggleLineNumbers,
     ToggleProjectSearch,
@@ -282,7 +275,6 @@ impl Action {
             Self::ToggleDocumentStatistics => {
                 Message::ToggleContextPage(ContextPage::DocumentStatistics)
             }
-            Self::ToggleGitManagement => Message::ToggleContextPage(ContextPage::GitManagement),
             Self::ToggleHighlightCurrentLine => Message::ToggleHighlightCurrentLine,
             Self::ToggleLineNumbers => Message::ToggleLineNumbers,
             Self::ToggleProjectSearch => Message::ToggleContextPage(ContextPage::ProjectSearch),
@@ -366,9 +358,6 @@ pub enum Message {
     FindUseRegex(bool),
     FindWrapAround(bool),
     Focus(window::Id),
-    GitProjectStatus(Vec<(String, PathBuf, Vec<GitStatus>)>),
-    GitStage(PathBuf, PathBuf),
-    GitUnstage(PathBuf, PathBuf),
     Key(Modifiers, keyboard::key::Physical, keyboard::Key),
     LaunchUrl(String),
     Modifiers(Modifiers),
@@ -380,7 +369,6 @@ pub enum Message {
     OpenFile(PathBuf),
     OpenFileDialog,
     OpenFileResult(DialogResult),
-    OpenGitDiff(PathBuf, GitDiff),
     OpenProjectDialog,
     OpenProjectResult(DialogResult),
     OpenRecentFile(usize),
@@ -388,7 +376,6 @@ pub enum Message {
     OpenSearchResult(usize, usize),
     Paste,
     PasteValue(String),
-    PrepareGitDiff(PathBuf, PathBuf, bool),
     ProjectSearchResult(ProjectSearchResult),
     ProjectSearchSubmit,
     ProjectSearchValue(String),
@@ -425,7 +412,6 @@ pub enum Message {
     ToggleLineNumbers,
     ToggleWordWrap,
     Undo,
-    UpdateGitProjectStatus,
     VimBindings(bool),
 }
 
@@ -433,7 +419,6 @@ pub enum Message {
 pub enum ContextPage {
     About,
     DocumentStatistics,
-    GitManagement,
     //TODO: Move search to pop-up
     ProjectSearch,
     Settings,
@@ -479,7 +464,6 @@ pub struct App {
     find_replace_value: String,
     find_search_id: widget::Id,
     find_search_value: String,
-    git_project_status: Option<Vec<(String, PathBuf, Vec<GitStatus>)>>,
     projects: Vec<(String, PathBuf)>,
     project_search_id: widget::Id,
     project_search_value: String,
@@ -820,7 +804,6 @@ impl App {
     fn update_nav_bar_active(&mut self) {
         let tab_path_opt = match self.active_tab() {
             Some(Tab::Editor(tab)) => tab.path_opt.clone(),
-            Some(Tab::GitDiff(tab)) => Some(tab.diff.path.clone()),
             None => None,
         };
 
@@ -891,10 +874,9 @@ impl App {
 
         let title = match self.active_tab() {
             Some(tab) => {
-                if let Tab::Editor(inner) = tab {
-                    // Force redraw on tab switches
-                    inner.editor.lock().unwrap().set_redraw(true);
-                }
+                let Tab::Editor(inner) = tab;
+                // Force redraw on tab switches
+                inner.editor.lock().unwrap().set_redraw(true);
                 tab.title()
             }
             None => "No Open File".to_string(),
@@ -1019,186 +1001,6 @@ impl App {
                 .into(),
         ])
         .into()
-    }
-
-    fn git_management(&self) -> Element<'_, Message> {
-        let spacing = self.core().system_theme().cosmic().spacing;
-
-        if let Some(project_status) = &self.git_project_status {
-            let (success_color, destructive_color, warning_color) = {
-                let cosmic_theme = self.core().system_theme().cosmic();
-                (
-                    cosmic_theme.success_color(),
-                    cosmic_theme.destructive_color(),
-                    cosmic_theme.warning_color(),
-                )
-            };
-            let added = || widget::text("[+]").class(theme::Text::Color(success_color.into()));
-            let deleted =
-                || widget::text("[-]").class(theme::Text::Color(destructive_color.into()));
-            let modified = || widget::text("[*]").class(theme::Text::Color(warning_color.into()));
-
-            let mut items =
-                Vec::with_capacity(project_status.len().saturating_mul(3).saturating_add(1));
-            items.push(widget::text(fl!("git-management-description")).into());
-
-            for (project_name, project_path, status) in project_status.iter() {
-                let mut unstaged_items = Vec::with_capacity(status.len());
-                let mut staged_items = Vec::with_capacity(status.len());
-                for item in status.iter() {
-                    let relative_path = match item.path.strip_prefix(project_path) {
-                        Ok(ok) => ok,
-                        Err(err) => {
-                            log::warn!(
-                                "failed to find relative path of {:?} in project {:?}: {}",
-                                item.path,
-                                project_path,
-                                err
-                            );
-                            &item.path
-                        }
-                    };
-
-                    let text = match &item.old_path {
-                        Some(old_path) => {
-                            let old_relative_path = match old_path.strip_prefix(project_path) {
-                                Ok(ok) => ok,
-                                Err(err) => {
-                                    log::warn!(
-                                        "failed to find relative path of {:?} in project {:?}: {}",
-                                        old_path,
-                                        project_path,
-                                        err
-                                    );
-                                    old_path
-                                }
-                            };
-                            format!(
-                                "{} -> {}",
-                                old_relative_path.display(),
-                                relative_path.display()
-                            )
-                        }
-                        None => format!("{}", relative_path.display()),
-                    };
-
-                    let unstaged_opt = match item.unstaged {
-                        GitStatusKind::Unmodified => None,
-                        GitStatusKind::Modified => Some(modified()),
-                        GitStatusKind::FileTypeChanged => Some(modified()),
-                        GitStatusKind::Added => Some(added()),
-                        GitStatusKind::Deleted => Some(deleted()),
-                        GitStatusKind::Renamed => Some(modified()), //TODO
-                        GitStatusKind::Copied => Some(modified()),  // TODO
-                        GitStatusKind::Updated => Some(modified()),
-                        GitStatusKind::Untracked => Some(added()),
-                        GitStatusKind::SubmoduleModified => Some(modified()),
-                    };
-
-                    if let Some(icon) = unstaged_opt {
-                        unstaged_items.push(
-                            widget::button::custom(
-                                widget::row::with_children(vec![
-                                    icon.into(),
-                                    widget::text(text.clone()).into(),
-                                    widget::space::horizontal().into(),
-                                    widget::button::standard(fl!("stage"))
-                                        .on_press(Message::GitStage(
-                                            project_path.clone(),
-                                            item.path.clone(),
-                                        ))
-                                        .into(),
-                                ])
-                                .align_y(Alignment::Center)
-                                .spacing(spacing.space_xs),
-                            )
-                            .on_press(Message::PrepareGitDiff(
-                                project_path.clone(),
-                                item.path.clone(),
-                                false,
-                            ))
-                            .class(theme::Button::AppletMenu)
-                            .width(Length::Fill)
-                            .into(),
-                        );
-                    }
-
-                    let staged_opt = match item.staged {
-                        GitStatusKind::Unmodified => None,
-                        GitStatusKind::Modified => Some(modified()),
-                        GitStatusKind::FileTypeChanged => Some(modified()),
-                        GitStatusKind::Added => Some(added()),
-                        GitStatusKind::Deleted => Some(deleted()),
-                        GitStatusKind::Renamed => Some(modified()), //TODO
-                        GitStatusKind::Copied => Some(modified()),  // TODO
-                        GitStatusKind::Updated => Some(modified()),
-                        GitStatusKind::Untracked => None,
-                        GitStatusKind::SubmoduleModified => Some(modified()),
-                    };
-
-                    if let Some(icon) = staged_opt {
-                        staged_items.push(
-                            widget::button::custom(
-                                widget::row::with_children(vec![
-                                    icon.into(),
-                                    widget::text(text.clone()).into(),
-                                    widget::space::horizontal().into(),
-                                    widget::button::standard(fl!("unstage"))
-                                        .on_press(Message::GitUnstage(
-                                            project_path.clone(),
-                                            item.path.clone(),
-                                        ))
-                                        .into(),
-                                ])
-                                .align_y(Alignment::Center)
-                                .spacing(spacing.space_xs),
-                            )
-                            .on_press(Message::PrepareGitDiff(
-                                project_path.clone(),
-                                item.path.clone(),
-                                true,
-                            ))
-                            .class(theme::Button::AppletMenu)
-                            .width(Length::Fill)
-                            .into(),
-                        );
-                    }
-                }
-
-                items.push(widget::text::heading(project_name.clone()).into());
-
-                if !unstaged_items.is_empty() {
-                    items.push(
-                        widget::settings::section()
-                            .title(fl!("unstaged-changes"))
-                            .add(widget::column::with_children(unstaged_items))
-                            .into(),
-                    );
-                }
-
-                if !staged_items.is_empty() {
-                    items.push(
-                        widget::settings::section()
-                            .title(fl!("staged-changes"))
-                            .add(widget::column::with_children(staged_items))
-                            .into(),
-                    );
-                }
-            }
-
-            widget::column::with_children(items)
-                .spacing(spacing.space_s)
-                .padding([spacing.space_xxs, spacing.space_none])
-                .into()
-        } else {
-            widget::column::with_children(vec![
-                widget::text(fl!("git-management-description")).into(),
-                widget::text(fl!("git-management-loading")).into(),
-            ])
-            .spacing(spacing.space_s)
-            .padding([spacing.space_xxs, spacing.space_none])
-            .into()
-        }
     }
 
     fn project_search(&self) -> Element<'_, Message> {
@@ -1499,7 +1301,6 @@ impl Application for App {
             find_replace_value: String::new(),
             find_search_id: widget::Id::unique(),
             find_search_value: String::new(),
-            git_project_status: None,
             projects: Vec::new(),
             project_search_id: widget::Id::unique(),
             project_search_value: String::new(),
@@ -2065,71 +1866,6 @@ impl Application for App {
                     return self.update_focus();
                 }
             }
-            Message::GitProjectStatus(project_status) => {
-                self.git_project_status = Some(project_status);
-            }
-            Message::GitStage(project_path, path) => {
-                return Task::perform(
-                    async move {
-                        //TODO: send errors to UI
-                        match GitRepository::new(&project_path) {
-                            Ok(repo) => match repo.stage(&path).await {
-                                Ok(()) => {
-                                    return action::app(Message::UpdateGitProjectStatus);
-                                }
-                                Err(err) => {
-                                    log::error!(
-                                        "failed to stage {:?} in {:?}: {}",
-                                        path,
-                                        project_path,
-                                        err
-                                    );
-                                }
-                            },
-                            Err(err) => {
-                                log::error!(
-                                    "failed to open repository {:?}: {}",
-                                    project_path,
-                                    err
-                                );
-                            }
-                        }
-                        action::none()
-                    },
-                    |x| x,
-                );
-            }
-            Message::GitUnstage(project_path, path) => {
-                return Task::perform(
-                    async move {
-                        //TODO: send errors to UI
-                        match GitRepository::new(&project_path) {
-                            Ok(repo) => match repo.unstage(&path).await {
-                                Ok(()) => {
-                                    return action::app(Message::UpdateGitProjectStatus);
-                                }
-                                Err(err) => {
-                                    log::error!(
-                                        "failed to unstage {:?} in {:?}: {}",
-                                        path,
-                                        project_path,
-                                        err
-                                    );
-                                }
-                            },
-                            Err(err) => {
-                                log::error!(
-                                    "failed to open repository {:?}: {}",
-                                    project_path,
-                                    err
-                                );
-                            }
-                        }
-                        action::none()
-                    },
-                    |x| x,
-                );
-            }
             Message::Key(modifiers, physical, key) => {
                 for (key_bind, action) in self.key_binds.iter() {
                     if key_bind.matches(modifiers, &key, Some(&physical)) {
@@ -2270,23 +2006,6 @@ impl Application for App {
                     let indent = self.nav_model.indent(entity).unwrap_or(0);
                     self.open_folder(open_path, position + 1, indent + 1);
                 }
-
-                // Reload git status if necessary
-                if self.core.window.show_context && self.context_page == ContextPage::GitManagement
-                {
-                    for (_, project_path) in self.projects.iter() {
-                        for path in event.paths.iter() {
-                            if let Ok(prefix) = path.strip_prefix(project_path) {
-                                // Manually ignore project .git folders
-                                //TODO: use logic from ignore crate somehow?
-                                if prefix.starts_with(".git") {
-                                    continue;
-                                }
-                                return self.update(Message::UpdateGitProjectStatus);
-                            }
-                        }
-                    }
-                }
             }
             Message::NotifyWatcher(mut watcher_wrapper) => match watcher_wrapper.watcher_opt.take()
             {
@@ -2340,55 +2059,6 @@ impl Application for App {
                         return self.update_tab();
                     }
                 }
-            }
-            Message::OpenGitDiff(project_path, diff) => {
-                // Close any diff tabs with same path
-                {
-                    let mut close = Vec::new();
-                    for entity in self.tab_model.iter() {
-                        if let Some(Tab::GitDiff(other_tab)) = self.tab_model.data::<Tab>(entity)
-                            && other_tab.diff.path == diff.path
-                        {
-                            close.push(entity);
-                        }
-                    }
-                    for entity in close {
-                        self.tab_model.remove(entity);
-                    }
-                }
-
-                let relative_path = match diff.path.strip_prefix(project_path.clone()) {
-                    Ok(ok) => ok,
-                    Err(err) => {
-                        log::warn!(
-                            "failed to find relative path of {:?} in project {:?}: {}",
-                            diff.path,
-                            project_path,
-                            err
-                        );
-                        &diff.path
-                    }
-                };
-                let title = format!(
-                    "{}: {}",
-                    if diff.staged {
-                        fl!("staged-changes")
-                    } else {
-                        fl!("unstaged-changes")
-                    },
-                    relative_path.display()
-                );
-                let icon =
-                    icon::icon(mime_icon(mime_for_path(&diff.path, None, false), 16)).size(16);
-                let tab = Tab::GitDiff(GitDiffTab { title, diff });
-                self.tab_model
-                    .insert()
-                    .text(tab.title())
-                    .icon(icon)
-                    .data::<Tab>(tab)
-                    .closable()
-                    .activate();
-                return self.update_tab();
             }
             Message::OpenProjectDialog => {
                 if self.dialog_opt.is_none() {
@@ -2477,37 +2147,6 @@ impl Application for App {
                     }
                     return self.update(Message::TabChanged(self.tab_model.active()));
                 }
-            }
-            Message::PrepareGitDiff(project_path, path, staged) => {
-                return Task::perform(
-                    async move {
-                        //TODO: send errors to UI
-                        match GitRepository::new(&project_path) {
-                            Ok(repo) => match repo.diff(&path, staged).await {
-                                Ok(diff) => {
-                                    return action::app(Message::OpenGitDiff(project_path, diff));
-                                }
-                                Err(err) => {
-                                    log::error!(
-                                        "failed to get diff of {:?} in {:?}: {}",
-                                        path,
-                                        project_path,
-                                        err
-                                    );
-                                }
-                            },
-                            Err(err) => {
-                                log::error!(
-                                    "failed to open repository {:?}: {}",
-                                    project_path,
-                                    err
-                                );
-                            }
-                        }
-                        action::none()
-                    },
-                    |x| x,
-                );
             }
             Message::ProjectSearchResult(project_search_result) => {
                 self.project_search_result = Some(project_search_result);
@@ -2881,12 +2520,6 @@ impl Application for App {
                 self.project_search_has_focus = self.core.window.show_context
                     && self.context_page == ContextPage::ProjectSearch;
 
-                // Execute commands for specific pages
-                if self.core.window.show_context && self.context_page == ContextPage::GitManagement
-                {
-                    return self.update(Message::UpdateGitProjectStatus);
-                }
-
                 // Ensure focus of correct input
                 return self.update_focus();
             }
@@ -2930,47 +2563,6 @@ impl Application for App {
                     return self.update(Message::TabChanged(self.tab_model.active()));
                 }
             }
-            Message::UpdateGitProjectStatus => {
-                self.git_project_status = None;
-                let projects = self.projects.clone();
-                return Task::perform(
-                    async move {
-                        let mut project_status = Vec::new();
-                        for (project_name, project_path) in projects.iter() {
-                            //TODO: send errors to UI
-                            match GitRepository::new(project_path) {
-                                Ok(repo) => match repo.status().await {
-                                    Ok(status) => {
-                                        if !status.is_empty() {
-                                            project_status.push((
-                                                project_name.clone(),
-                                                project_path.clone(),
-                                                status,
-                                            ));
-                                        }
-                                    }
-                                    Err(err) => {
-                                        log::error!(
-                                            "failed to get status of {:?}: {}",
-                                            project_path,
-                                            err
-                                        );
-                                    }
-                                },
-                                Err(err) => {
-                                    log::error!(
-                                        "failed to open repository {:?}: {}",
-                                        project_path,
-                                        err
-                                    );
-                                }
-                            }
-                        }
-                        action::app(Message::GitProjectStatus(project_status))
-                    },
-                    |x| x,
-                );
-            }
             Message::VimBindings(vim_bindings) => {
                 config_set!(vim_bindings, vim_bindings);
                 return self.update_config();
@@ -3004,11 +2596,6 @@ impl Application for App {
                 Message::ToggleContextPage(ContextPage::DocumentStatistics),
             )
             .title(fl!("document-statistics")),
-            ContextPage::GitManagement => context_drawer::context_drawer(
-                self.git_management(),
-                Message::ToggleContextPage(ContextPage::GitManagement),
-            )
-            .title(fl!("git-management")),
             ContextPage::ProjectSearch => context_drawer::context_drawer(
                 self.project_search(),
                 Message::ToggleContextPage(ContextPage::ProjectSearch),
@@ -3025,7 +2612,6 @@ impl Application for App {
     fn header_start(&self) -> Vec<Element<'_, Message>> {
         let has_selection = match self.active_tab() {
             Some(Tab::Editor(tab)) => tab.editor.lock().unwrap().selection() != Selection::None,
-            Some(Tab::GitDiff(_)) => false,
             None => false,
         };
 
@@ -3132,59 +2718,6 @@ impl Application for App {
                     };
                     tab_column = tab_column.push(widget::text(status).font(Font::MONOSPACE));
                 }
-            }
-            Some(Tab::GitDiff(tab)) => {
-                let mut diff_widget = widget::column::with_capacity(tab.diff.hunks.len());
-                for hunk in tab.diff.hunks.iter() {
-                    let mut hunk_widget = widget::column::with_capacity(hunk.lines.len());
-                    for line in hunk.lines.iter() {
-                        let line_widget = match line {
-                            GitDiffLine::Context {
-                                old_line,
-                                new_line,
-                                text,
-                            } => widget::container(widget::text::monotext(format!(
-                                "{:4} {:4}   {}",
-                                old_line, new_line, text
-                            ))),
-                            GitDiffLine::Added { new_line, text } => {
-                                widget::container(widget::text::monotext(format!(
-                                    "{:4} {:4} + {}",
-                                    "", new_line, text
-                                )))
-                                .style(|_theme| {
-                                    //TODO: theme this color
-                                    widget::container::Style {
-                                        background: Some(Background::Color(Color::from_rgb8(
-                                            0x00, 0x40, 0x00,
-                                        ))),
-                                        ..Default::default()
-                                    }
-                                })
-                            }
-                            GitDiffLine::Deleted { old_line, text } => {
-                                widget::container(widget::text::monotext(format!(
-                                    "{:4} {:4} - {}",
-                                    old_line, "", text
-                                )))
-                                .style(|_theme| {
-                                    //TODO: theme this color
-                                    widget::container::Style {
-                                        background: Some(Background::Color(Color::from_rgb8(
-                                            0x40, 0x00, 0x00,
-                                        ))),
-                                        ..Default::default()
-                                    }
-                                })
-                            }
-                        };
-                        hunk_widget = hunk_widget.push(line_widget.width(Length::Fill));
-                    }
-                    diff_widget = diff_widget.push(hunk_widget);
-                }
-                tab_column = tab_column.push(widget::scrollable(
-                    widget::layer_container(diff_widget).layer(cosmic_theme::Layer::Primary),
-                ));
             }
             None => {}
         }

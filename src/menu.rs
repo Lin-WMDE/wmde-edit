@@ -245,11 +245,6 @@ pub fn menu_bar<'a>(
                         ),
                         //TODO MenuItem::Button(fl!("document-type"), Action::Todo),
                         //TODO MenuItem::Button(fl!("encoding"), Action::Todo),
-                        MenuItem::Button(
-                            fl!("menu-git-management"),
-                            None,
-                            Action::ToggleGitManagement,
-                        ),
                         //TODO MenuItem::Button(fl!("print"), Action::Todo),
                         MenuItem::Divider,
                         MenuItem::Button(fl!("quit"), None, Action::Quit),

@@ -57,11 +57,6 @@ pub fn key_binds() -> HashMap<KeyBind, Action> {
     bind!([Ctrl, Shift], Key::Named(Named::Tab), TabPrev);
     bind!(
         [Ctrl, Shift],
-        Key::Character("G".into()),
-        ToggleGitManagement
-    );
-    bind!(
-        [Ctrl, Shift],
         Key::Character("F".into()),
         ToggleProjectSearch
     );

@@ -12,7 +12,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::{Config, SYNTAX_SYSTEM, fl, git::GitDiff};
+use crate::{Config, SYNTAX_SYSTEM, fl};
 
 fn editor_text(editor: &ViEditor<'static, 'static>) -> String {
     editor.with_buffer(|buffer| {
@@ -25,24 +25,18 @@ fn editor_text(editor: &ViEditor<'static, 'static>) -> String {
     })
 }
 
-#[allow(clippy::large_enum_variant)]
+// WMDE: a single variant since git diff tabs were dropped; kept as an enum so the many
+// `Tab::Editor` matches stay as upstream writes them.
 pub enum Tab {
     Editor(EditorTab),
-    GitDiff(GitDiffTab),
 }
 
 impl Tab {
     pub fn title(&self) -> String {
         match self {
             Self::Editor(tab) => tab.title(),
-            Self::GitDiff(tab) => tab.title.clone(),
         }
     }
-}
-
-pub struct GitDiffTab {
-    pub title: String,
-    pub diff: GitDiff,
 }
 
 pub struct EditorTab {
