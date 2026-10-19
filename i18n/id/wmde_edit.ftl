@@ -1,4 +1,4 @@
-cosmic-text-editor = Penyunting Teks WMDE
+cosmic-text-editor = Penyunting Teks
 new-document = Dokumen baru
 cancel = Batalkan
 open-project = Buka proyek
@@ -82,7 +82,7 @@ show-line-numbers = Tampilkan angka baris
 highlight-current-line = Sorot baris saat ini
 syntax-highlighting = Penyorotan sintaksis...
 menu-keyboard-shortcuts = Pintasan papan ketik...
-menu-about = Tentang Penyunting Teks WMDE...
+menu-about = Tentang Penyunting Teks...
 convert-indentation-to-spaces = Ubah indentasi menjadi spasi
 convert-indentation-to-tabs = Ubah indentasi menjadi tab
 prompt-save-changes-title = Simpan perubahan sebelum menutup?

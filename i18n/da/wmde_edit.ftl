@@ -1,7 +1,7 @@
 save = Gem
 cancel = Afbryd
 quit = Afslut
-cosmic-text-editor = WMDE-teksteditor
+cosmic-text-editor = Teksteditor
 new-document = Nyt dokument
 open-project = Åbn project
 repository = Pakkearkiv
@@ -86,6 +86,6 @@ word-wrap = Tekstombrydning
 show-line-numbers = Vis linjenumre
 highlight-current-line = Fremhæv aktuel linje
 syntax-highlighting = Syntaksfremhævning…
-menu-about = Om WMDE Teksteditor…
+menu-about = Om Teksteditor…
 support = Support
 settings = Indstillinger

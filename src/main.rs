@@ -22,8 +22,8 @@ use cosmic::{
     widget::{self, about::About, button, icon, segmented_button},
 };
 use cosmic_files::dialog::{
-    Dialog, DialogChoice, DialogChoiceOption, DialogKind, DialogMessage, DialogResult,
-    DialogSettings,
+    Dialog, DialogChoice, DialogChoiceOption, DialogFilter, DialogFilterPattern, DialogKind,
+    DialogMessage, DialogResult, DialogSettings,
 };
 use cosmic_text::{Cursor, Edit, Family, Selection, SwashCache, SyntaxSystem, ViMode};
 use notify::{RecursiveMode, Watcher};
@@ -33,7 +33,7 @@ use std::{
     any::TypeId,
     collections::{HashMap, HashSet},
     env, fs, io,
-    path::{self, PathBuf},
+    path::{self, Path, PathBuf},
     process,
     sync::{Mutex, OnceLock},
 };
@@ -480,6 +480,43 @@ enum DialogPage {
 // WMDE: the id of the encoding chooser in the Save as dialog.
 const ENCODING_CHOICE: &str = "encoding";
 
+/// WMDE: the filters of the Open dialog, in the order `ConfigState::open_filter` indexes.
+/// A glob is matched case-sensitively, hence both spellings of the extension; "All files"
+/// needs its `*`, an empty pattern list would hide every file.
+fn wmde_open_filters() -> Vec<DialogFilter> {
+    let glob = |pattern: &str| DialogFilterPattern::Glob(pattern.to_string());
+    vec![
+        DialogFilter {
+            label: fl!("filter-text-documents"),
+            patterns: vec![glob("*.txt"), glob("*.TXT")],
+        },
+        DialogFilter {
+            label: fl!("filter-all-files"),
+            patterns: vec![glob("*")],
+        },
+    ]
+}
+
+/// WMDE: the folder the Open and Save as dialogs start in: the active document's, else the
+/// one the last opened or saved file lives in, else Documents, else home. Never the working
+/// directory - a GUI process inherits whatever launched it, and that gave /root.
+fn wmde_dialog_dir(
+    tab_path: Option<&Path>,
+    recent: Option<&Path>,
+    documents: Option<PathBuf>,
+    home: Option<PathBuf>,
+    is_dir: impl Fn(&Path) -> bool,
+) -> Option<PathBuf> {
+    [tab_path, recent]
+        .into_iter()
+        .flatten()
+        .filter_map(Path::parent)
+        .map(Path::to_path_buf)
+        .chain(documents)
+        .find(|dir| is_dir(dir))
+        .or(home)
+}
+
 /// WMDE: the chooser open over a status bar item.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum StatusPopup {
@@ -575,6 +612,21 @@ impl App {
                 self.open_tab(Some(path));
             }
         }
+    }
+
+    /// WMDE: see [`wmde_dialog_dir`].
+    fn wmde_dialog_dir(&self) -> Option<PathBuf> {
+        let tab_path = match self.active_tab() {
+            Some(Tab::Editor(tab)) => tab.path_opt.as_deref(),
+            None => None,
+        };
+        wmde_dialog_dir(
+            tab_path,
+            self.config_state.recent_files.front().map(PathBuf::as_path),
+            dirs::document_dir(),
+            dirs::home_dir(),
+            Path::is_dir,
+        )
     }
 
     /// Replace existing tab, `entity`, with contents loaded from `path`
@@ -1196,8 +1248,9 @@ fn wmde_new_tab_button<'a>() -> Element<'a, Message> {
 
 // WMDE: Win11-style tabs, the same as wmde-term's title-bar strip - the active tab uses the
 // menu-row color so it connects to the strip below it, rounded only on top, no accent
-// underline, neutral text.
-fn wmde_tab_style() -> style::SegmentedButton {
+// underline, neutral text. Without focus the tabs take the muted tone the rest of the title
+// bar dims to; the hovered tab stays bright.
+fn wmde_tab_style(focused: bool) -> style::SegmentedButton {
     use cosmic::widget::segmented_button::{Appearance, ItemAppearance, ItemStatusAppearance};
     style::SegmentedButton::Custom(Box::new(move |theme| {
         let cosmic = theme.cosmic();
@@ -1205,6 +1258,11 @@ fn wmde_tab_style() -> style::SegmentedButton {
         let top_round = iced::border::Radius::from([rad[0], rad[1], 0.0, 0.0]);
         let body = cosmic::widget::header_strip_color(theme);
         let on = iced::Color::from(cosmic.background(theme.transparent).on);
+        let ink = if focused {
+            on
+        } else {
+            cosmic::widget::header_unfocused_color(theme)
+        };
         // WMDE: nudge the fill towards the text colour - lighter in a dark theme, darker in a
         // light one. A translucent copy of the fill would have made the ACTIVE tab look weaker
         // under the cursor, because libcosmic draws the hover appearance instead of the active
@@ -1227,7 +1285,7 @@ fn wmde_tab_style() -> style::SegmentedButton {
             first: item(top_round),
             middle: item(top_round),
             last: item(top_round),
-            text_color: on,
+            text_color: ink,
         };
         Appearance {
             background: None,
@@ -1240,7 +1298,11 @@ fn wmde_tab_style() -> style::SegmentedButton {
                 background: None,
                 // WMDE: dim the same ink rather than switch to component.on, which is DARKER
                 // than background.on in the light palette and inverted the emphasis there.
-                text_color: iced::Color { a: 0.65, ..on },
+                text_color: if focused {
+                    iced::Color { a: 0.65, ..on }
+                } else {
+                    ink
+                },
                 ..active
             },
             hover: ItemStatusAppearance {
@@ -1971,16 +2033,34 @@ impl Application for App {
             }
             Message::OpenFileDialog => {
                 if self.dialog_opt.is_none() {
-                    let (dialog, command) = Dialog::new(
-                        DialogSettings::new().kind(DialogKind::OpenMultipleFiles),
-                        Message::DialogMessage,
-                        Message::OpenFileResult,
-                    );
+                    let mut settings = DialogSettings::new().kind(DialogKind::OpenMultipleFiles);
+                    if let Some(dir) = self.wmde_dialog_dir() {
+                        settings = settings.path(dir);
+                    }
+                    let (mut dialog, command) =
+                        Dialog::new(settings, Message::DialogMessage, Message::OpenFileResult);
+                    // WMDE: text documents first, as in Windows, and the last pick after that.
+                    let filters = wmde_open_filters();
+                    let selected = Some(self.config_state.open_filter)
+                        .filter(|i| *i < filters.len())
+                        .unwrap_or(0);
+                    let filters = dialog.set_filters(filters, Some(selected));
                     self.dialog_opt = Some(dialog);
-                    return command;
+                    return Task::batch([command, filters]);
                 }
             }
             Message::OpenFileResult(result) => {
+                // WMDE: remember the filter before the dialog goes away, cancelled or not.
+                let selected = self
+                    .dialog_opt
+                    .as_ref()
+                    .and_then(|dialog| dialog.filters().1);
+                if let Some(selected) = selected
+                    && selected != self.config_state.open_filter
+                {
+                    self.config_state.open_filter = selected;
+                    self.save_config_state();
+                }
                 self.dialog_opt = None;
                 match result {
                     DialogResult::Cancel => {}
@@ -2123,7 +2203,8 @@ impl Application for App {
                                     .unwrap_or(String::new()),
                                 path.parent().map(|x| x.to_path_buf()),
                             ),
-                            None => (String::new(), None),
+                            // WMDE: a new document starts where the Open dialog would.
+                            None => (String::new(), self.wmde_dialog_dir()),
                         };
                         let mut settings =
                             DialogSettings::new().kind(DialogKind::SaveFile { filename });
@@ -2511,6 +2592,7 @@ impl Application for App {
         // WMDE: browser-style tabs at the left of the CSD title bar (Win11-like). The menu
         // moved to a strip of its own below.
         let cosmic_theme::Spacing { space_xxs, .. } = self.core().system_theme().cosmic().spacing;
+        let focused = self.core().main_window_focused();
         // WMDE: the "+" follows the tabs, and the tab strip is capped so that it can never
         // take the button's width. `responsive` hands us the room the header has left, which
         // is the only place that number is known. Once the tabs fill the bar the strip
@@ -2524,7 +2606,7 @@ impl Application for App {
                         widget::tab_bar::horizontal(&self.tab_model)
                             .button_height(32)
                             .button_spacing(space_xxs)
-                            .style(wmde_tab_style())
+                            .style(wmde_tab_style(focused))
                             .enable_tab_drag(String::from("x-wmde-edit/tab"))
                             .on_reorder(Message::ReorderTab)
                             .tab_drag_threshold(25.)
@@ -2951,5 +3033,64 @@ impl Application for App {
         }
 
         Subscription::batch(subscriptions)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::wmde_dialog_dir;
+    use std::path::{Path, PathBuf};
+
+    #[test]
+    fn dialog_dir_falls_back_in_order() {
+        let existing = ["/work/notes", "/recent", "/Documents", "/"];
+        let is_dir = |dir: &Path| existing.iter().any(|x| Path::new(x) == dir);
+        let documents = || Some(PathBuf::from("/Documents"));
+        let home = || Some(PathBuf::from("/home/me"));
+
+        // The active document's folder comes first.
+        assert_eq!(
+            wmde_dialog_dir(
+                Some(Path::new("/work/notes/a.txt")),
+                Some(Path::new("/recent/b.txt")),
+                documents(),
+                home(),
+                is_dir,
+            ),
+            Some(PathBuf::from("/work/notes"))
+        );
+        // An untitled tab: the folder of the last opened or saved file.
+        assert_eq!(
+            wmde_dialog_dir(
+                None,
+                Some(Path::new("/recent/b.txt")),
+                documents(),
+                home(),
+                is_dir
+            ),
+            Some(PathBuf::from("/recent"))
+        );
+        // Folders that are gone are skipped.
+        assert_eq!(
+            wmde_dialog_dir(
+                Some(Path::new("/gone/a.txt")),
+                Some(Path::new("/gone/b.txt")),
+                documents(),
+                home(),
+                is_dir,
+            ),
+            Some(PathBuf::from("/Documents"))
+        );
+        // No Documents folder, or one that does not exist: home.
+        assert_eq!(wmde_dialog_dir(None, None, None, home(), is_dir), home());
+        assert_eq!(
+            wmde_dialog_dir(None, None, Some(PathBuf::from("/Missing")), home(), is_dir),
+            home()
+        );
+        // A file at the root opens in the root.
+        assert_eq!(
+            wmde_dialog_dir(Some(Path::new("/a.txt")), None, None, home(), is_dir),
+            Some(PathBuf::from("/"))
+        );
     }
 }

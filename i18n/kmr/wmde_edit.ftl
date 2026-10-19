@@ -1,7 +1,7 @@
 save = Tomar bike
 cancel = Têk bibe
 undo = Vegerîne
-cosmic-text-editor = Edîtorê nivîsê ya WMDE
+cosmic-text-editor = Edîtorê nivîsê
 stage = Ast
 settings = Sazkarî
 appearance = Xuyang
@@ -88,4 +88,4 @@ word-wrap = Pêçana peyvan
 show-line-numbers = Jimarên rêzan nîşan bide
 highlight-current-line = Rêza heyî ronî bike
 syntax-highlighting = Ronîkirina syntaxê...
-menu-about = Di derbarê edîtorê nivîsê ya WMDE de...
+menu-about = Di derbarê edîtorê nivîsê de...

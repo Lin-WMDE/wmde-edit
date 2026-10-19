@@ -1,1 +1,1 @@
-cosmic-text-editor = WMDE Tekstredaktilo
+cosmic-text-editor = Tekstredaktilo

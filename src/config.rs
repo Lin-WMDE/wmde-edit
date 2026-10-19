@@ -99,5 +99,8 @@ impl Config {
 
 #[derive(Clone, CosmicConfigEntry, Debug, Deserialize, Eq, PartialEq, Serialize, Default)]
 pub struct ConfigState {
+    /// WMDE: the filter last picked in the Open dialog, an index into the list the dialog
+    /// gets; 0, text documents, until someone picks another.
+    pub open_filter: usize,
     pub recent_files: VecDeque<PathBuf>,
 }

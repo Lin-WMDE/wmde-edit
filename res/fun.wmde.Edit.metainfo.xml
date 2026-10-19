@@ -7,7 +7,7 @@
   <developer_name>WMDE</developer_name>
   <url type="homepage">https://github.com/Lin-WMDE/wmde-edit</url>
   <url type="bugtracker">https://github.com/Lin-WMDE/wmde-edit</url>
-  <name>WMDE Notepad</name>
+  <name>Notepad</name>
   <name xml:lang="uk">Блокнот</name>
   <summary>Text editor for the WMDE desktop</summary>
   <summary xml:lang="uk">Текстовий редактор для стільниці WMDE</summary>

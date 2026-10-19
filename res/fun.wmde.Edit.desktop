@@ -1,5 +1,5 @@
 [Desktop Entry]
-Name=WMDE Notepad
+Name=Notepad
 Name[uk]=Блокнот
 Comment=Text editor for the WMDE desktop
 Comment[uk]=Текстовий редактор для стільниці WMDE
@@ -10,8 +10,8 @@ StartupNotify=true
 MimeType=text/plain;application/x-zerosize;text/x-log;text/markdown;text/x-readme;text/x-changelog;text/x-authors;text/x-copying;text/x-credits;text/x-install;text/x-nfo;text/x-rst;text/org;text/x-tex;text/x-bibtex;application/json;application/json5;application/yaml;application/toml;application/xml;text/x-systemd-unit;text/x-dbus-service;text/x-ms-regedit;text/x-rpm-spec;text/x-dockerfile;text/x-meson;text/x-cmake;text/x-makefile;text/x-gettext-translation;text/x-gettext-translation-template;text/x-patch;text/x-reject;text/x-csrc;text/x-chdr;text/x-c++src;text/x-c++hdr;text/x-objcsrc;text/x-csharp;text/x-java;text/x-kotlin;text/x-scala;text/x-groovy;text/x-go;text/rust;text/x-python;text/x-python3;text/javascript;application/typescript;text/css;text/x-scss;text/x-sass;text/x-shellscript;application/x-fishscript;application/x-powershell;application/x-bat;application/x-perl;application/x-php;application/x-ruby;text/x-lua;text/tcl;application/sql;text/x-haskell;text/x-ocaml;text/x-erlang;text/x-elixir;text/x-nim;text/x-nix;text/x-vala;text/x-qml;text/x-dsrc;text/x-fortran;text/x-pascal;text/x-asm;text/x-matlab;text/julia;text/x-common-lisp;text/x-emacs-lisp;text/x-scheme;application/x-gdscript;text/x-verilog;text/x-vhdl;text/x-devicetree-source;text/x-blueprint;application/x-m4;
 Icon=fun.wmde.Edit
 Categories=Utility;TextEditor;
-Keywords=Text;Editor;Notepad;
-Keywords[uk]=Текст;Редактор;Блокнот;
+Keywords=Text;Editor;Notepad;WMDE;
+Keywords[uk]=Текст;Редактор;Блокнот;WMDE;
 Actions=new-window;
 
 [Desktop Action new-window]

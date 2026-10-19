@@ -1,4 +1,4 @@
-cosmic-text-editor = WMDE टेक्स्ट एडिटर
+cosmic-text-editor = टेक्स्ट एडिटर
 new-document = नया दस्तावेज़
 open-project = प्रोजेक्ट खोलें
 todo = कार्य-सूची
@@ -123,7 +123,7 @@ highlight-current-line = वर्तमान पंक्ति को हा�
 syntax-highlighting = सिंटैक्स हाइलाइटिंग..।
 menu-settings = सेटिंग्स..।
 menu-keyboard-shortcuts = कीबोर्ड शॉर्टकट्स..।
-menu-about = WMDE टेक्स्ट एडिटर के बारे में..।
+menu-about = टेक्स्ट एडिटर के बारे में..।
 repository = रिपॉजिटरी
 support = समर्थन
 comment = WMDE डेस्कटॉप के लिए टेक्स्ट एडिटर

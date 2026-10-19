@@ -1,4 +1,4 @@
-cosmic-text-editor = WMDE Tekstbewurker
+cosmic-text-editor = Tekstbewurker
 new-document = Nij dokumint
 open-project = Iepenje projekt
 support = Stipe

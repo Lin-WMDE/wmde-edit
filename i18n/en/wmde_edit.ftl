@@ -1,4 +1,4 @@
-cosmic-text-editor = WMDE Notepad
+cosmic-text-editor = Notepad
 comment = Text editor for the WMDE desktop
 new-document = New document
 open-project = Open project
@@ -137,3 +137,7 @@ save-with-encoding = Save with encoding
 elevated-cancelled = Authentication was cancelled, the file was not saved.
 elevated-not-authorized = Administrator rights to write this file were not granted, the file was not saved.
 elevated-failed = The file could not be written with administrator rights ({ $detail }).
+
+# WMDE: open dialog filters
+filter-text-documents = Text documents (*.txt)
+filter-all-files = All files

@@ -1,4 +1,4 @@
-cosmic-text-editor = WMDE Metin Düzenleyici
+cosmic-text-editor = Metin Düzenleyici
 new-document = Yeni belge
 open-project = Proje aç
 todo = TODO
@@ -123,7 +123,7 @@ highlight-current-line = Geçerli satırı vurgula
 syntax-highlighting = Sözdizimi vurgulanıyor….
 menu-settings = Ayarlar...
 menu-keyboard-shortcuts = Klavye kısayolları...
-menu-about = WMDE Metin Düzenleyici Hakkında...
+menu-about = Metin Düzenleyici Hakkında...
 repository = Depo
 support = Destek
 default-zoom-step = Yakınlaştırma adımları
